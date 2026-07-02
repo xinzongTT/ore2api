@@ -70,6 +70,9 @@ SEARCH_POLL_INTERVAL_SECS = 3.0
 SEARCH_DONE_STATUS = {"finished_successfully", "finished_partial_completion"}
 SEARCH_CONVERSATION_ID_RE = re.compile(r'"conversation_id"\s*:\s*"([^"]+)"')
 SEARCH_URL_RE = re.compile(r"https?://[^\s\"'<>）)\]}]+")
+SEARCH_CITATION_RE = re.compile(r"\ue200cite\ue202([^\ue201]*)\ue201")
+SEARCH_IMAGE_GROUP_RE = re.compile(r"\ue200image_group\ue202([^\ue201]*)\ue201")
+SEARCH_INTERNAL_BLOCK_RE = re.compile(r"\ue200(?!cite\ue202|image_group\ue202)[a-zA-Z0-9_]+\ue202[^\ue201]*\ue201")
 EDITABLE_FILE_MODEL = "gpt-5-5-thinking"
 EDITABLE_FILE_THINKING_EFFORT = "extended"
 EDITABLE_FILE_TIMEOUT_SECS = 1200.0
@@ -2310,6 +2313,7 @@ class OpenAIBackendAPI:
         metadata = message.get("metadata") if isinstance(message.get("metadata"), dict) else {}
         finish_details = metadata.get("finish_details") if isinstance(metadata.get("finish_details"), dict) else {}
         answer = self._search_message_text(message)
+        image_groups = self._collect_search_image_groups(message)
         sources = self._extract_search_sources(message)
         for url in SEARCH_URL_RE.findall(answer):
             url = self._clean_search_url(url)
@@ -2320,6 +2324,7 @@ class OpenAIBackendAPI:
             "status": str(finish_details.get("type") or metadata.get("status") or self._find_search_value(message, "status") or "").strip(),
             "answer": answer,
             "sources": sources,
+            "image_groups": image_groups,
             "assistant_message_id": str(message.get("id") or ""),
             "create_time": float(message.get("create_time") or 0.0),
         }
@@ -2351,7 +2356,92 @@ class OpenAIBackendAPI:
                     parts.extend(str(part.get(key) or "") for key in ("text", "summary", "content") if part.get(key))
         elif isinstance(content, str):
             parts.append(content)
-        return "\n".join(part.strip() for part in parts if str(part).strip()).strip()
+        return self._clean_search_answer("\n".join(part.strip() for part in parts if str(part).strip()))
+
+    def _clean_search_answer(self, answer: str) -> str:
+        def replace_citation(match: re.Match[str]) -> str:
+            citation_id = match.group(1) or ""
+            number_match = re.search(r"search(\d+)", citation_id)
+            return f"[{int(number_match.group(1)) + 1}]" if number_match else ""
+
+        answer = SEARCH_CITATION_RE.sub(replace_citation, str(answer or ""))
+        answer = SEARCH_IMAGE_GROUP_RE.sub("", answer)
+        answer = SEARCH_INTERNAL_BLOCK_RE.sub("", answer)
+        answer = re.sub(r"[ \t]+\n", "\n", answer)
+        answer = re.sub(r"\n{3,}", "\n\n", answer)
+        return answer.strip()
+
+    def _collect_search_image_groups(self, payload: Any) -> list[Dict[str, Any]]:
+        groups: list[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        def add(value: Any) -> None:
+            group = self._normalize_search_image_group(value)
+            if not group:
+                return
+            key = json.dumps(group, ensure_ascii=False, sort_keys=True)
+            if key in seen:
+                return
+            seen.add(key)
+            groups.append(group)
+
+        def walk(value: Any) -> None:
+            if isinstance(value, str):
+                for match in SEARCH_IMAGE_GROUP_RE.finditer(value):
+                    add(match.group(1))
+                return
+            if isinstance(value, list):
+                for item in value:
+                    walk(item)
+                return
+            if not isinstance(value, dict):
+                return
+
+            if "image_group" in value:
+                image_group = value.get("image_group")
+                if isinstance(image_group, (dict, str)):
+                    add(image_group)
+                walk(image_group)
+
+            block_type = str(value.get("type") or value.get("name") or value.get("block_type") or "").strip().lower()
+            if block_type == "image_group" or ("query" in value and ("aspect_ratio" in value or "num_per_query" in value)):
+                add(value)
+
+            for item in value.values():
+                walk(item)
+
+        walk(payload)
+        return groups
+
+    def _normalize_search_image_group(self, payload: Any) -> Dict[str, Any] | None:
+        if isinstance(payload, str):
+            try:
+                payload = json.loads(payload or "{}")
+            except Exception:
+                return None
+        if not isinstance(payload, dict):
+            return None
+        raw_queries = payload.get("query") or payload.get("queries")
+        if isinstance(raw_queries, str):
+            query_values = [raw_queries]
+        elif isinstance(raw_queries, list):
+            query_values = raw_queries
+        else:
+            query_values = []
+        queries = [str(item).strip() for item in query_values if str(item).strip()][:6]
+        if not queries:
+            return None
+        group: Dict[str, Any] = {"queries": queries}
+        aspect_ratio = str(payload.get("aspect_ratio") or "").strip()
+        if aspect_ratio:
+            group["aspect_ratio"] = aspect_ratio
+        try:
+            num_per_query = int(payload.get("num_per_query") or 0)
+        except Exception:
+            num_per_query = 0
+        if num_per_query > 0:
+            group["num_per_query"] = num_per_query
+        return group
 
     def _find_search_value(self, payload: Any, key: str) -> str:
         if isinstance(payload, str):

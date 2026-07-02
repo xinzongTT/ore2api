@@ -199,7 +199,7 @@ const reasoningEffortOptions = [
   { label: '低', value: 'low' },
   { label: '中', value: 'medium' },
   { label: '高', value: 'high' },
-  { label: '扩展', value: 'extended' },
+  { label: '超高', value: 'extended' },
 ]
 
 const editablePrompt = ref('')

@@ -84,11 +84,38 @@
                     <StudioMarkdownContent
                       v-if="message.content || message.status === 'streaming'"
                       :content="message.content || ' '"
+                      @citation-click="scrollToCitationSource"
                     />
                     <span v-if="message.status === 'streaming'" class="studio-cursor"></span>
                     <p v-if="message.error && !message.content.includes(message.error)" class="studio-error-text">
                       {{ message.error }}
                     </p>
+                    <button
+                      v-if="message.mode === 'search' && message.searchSources?.length"
+                      type="button"
+                      class="studio-search-source-chip"
+                      @click="openSearchSourcePanel(message)"
+                    >
+                      <Icon icon="lucide:link" class="studio-search-source-chip-icon h-3.5 w-3.5" />
+                      <span class="studio-search-source-chip-label">参考来源</span>
+                      <strong>{{ message.searchSources.length }}</strong>
+                      <small>查看</small>
+                    </button>
+                    <div v-if="message.mode === 'search' && message.searchImageGroups?.length" class="studio-search-image-groups">
+                      <div
+                        v-for="(group, groupIndex) in message.searchImageGroups"
+                        :key="`${message.id}-image-group-${groupIndex}`"
+                        class="studio-search-image-group"
+                      >
+                        <span class="studio-search-image-group-title">
+                          <Icon icon="lucide:image" class="h-3.5 w-3.5" />
+                          图片参考<span v-if="group.aspectRatio"> {{ group.aspectRatio }}</span>
+                        </span>
+                        <span class="studio-search-image-group-queries">
+                          <span v-for="query in group.queries" :key="query" class="studio-search-image-query">{{ query }}</span>
+                        </span>
+                      </div>
+                    </div>
                   </template>
 
                   <template v-else>
@@ -171,6 +198,61 @@
     >
       <Icon icon="lucide:arrow-down" class="h-5 w-5" />
     </button>
+
+    <Transition name="studio-search-drawer-fade">
+      <div
+        v-if="activeSearchSourceMessage"
+        class="studio-search-drawer-backdrop"
+        @click="closeSearchSourcePanel"
+      ></div>
+    </Transition>
+
+    <Transition name="studio-search-drawer-slide">
+      <aside
+        v-if="activeSearchSourceMessage"
+        class="studio-search-drawer"
+        role="dialog"
+        aria-label="参考来源"
+      >
+        <header class="studio-search-drawer-header">
+          <div>
+            <strong>参考来源</strong>
+            <small>{{ activeSearchSourceMessage.searchSources?.length || 0 }} 条网页结果</small>
+          </div>
+          <button
+            type="button"
+            class="studio-search-drawer-close"
+            aria-label="关闭参考来源"
+            title="关闭"
+            @click="closeSearchSourcePanel"
+          >
+            <Icon icon="lucide:x" class="h-4 w-4" />
+          </button>
+        </header>
+
+        <div class="studio-search-drawer-body custom-scrollbar">
+          <a
+            v-for="(source, sourceIndex) in activeSearchSourceMessage.searchSources"
+            :key="`${activeSearchSourceMessage.id}-panel-source-${sourceIndex}`"
+            :id="searchSourceDomId(activeSearchSourceMessage.id, sourceIndex)"
+            class="studio-search-source-card"
+            :class="{ 'is-static': !source.url, 'is-highlighted': highlightedSearchSourceId === searchSourceDomId(activeSearchSourceMessage.id, sourceIndex) }"
+            :href="source.url || undefined"
+            :target="source.url ? '_blank' : undefined"
+            :rel="source.url ? 'noreferrer' : undefined"
+            @click="!source.url && $event.preventDefault()"
+          >
+            <span class="studio-search-source-index">{{ sourceIndex + 1 }}</span>
+            <span class="studio-search-source-body">
+              <strong>{{ sourceTitle(source, sourceIndex) }}</strong>
+              <small v-if="sourceHost(source.url)">{{ sourceHost(source.url) }}</small>
+              <em v-if="source.snippet">{{ source.snippet }}</em>
+            </span>
+            <Icon v-if="source.url" icon="lucide:external-link" class="studio-search-source-open h-3.5 w-3.5" />
+          </a>
+        </div>
+      </aside>
+    </Transition>
   </section>
 </template>
 
@@ -185,7 +267,7 @@ import {
   type ImageTask,
   type ImageTaskAsset,
 } from '@/api/imageTasks'
-import type { StudioConversation, StudioMessage } from './types'
+import type { StudioConversation, StudioMessage, StudioSearchImageGroup, StudioSearchSource } from './types'
 
 const StudioMarkdownContent = defineAsyncComponent(() => import('./StudioMarkdownContent.vue'))
 
@@ -245,13 +327,16 @@ const showScrollLatest = ref(false)
 const visibleMessageLimit = ref(INITIAL_MESSAGE_LIMIT)
 const expandedMessageIds = ref<Set<string>>(new Set())
 const collapsedMessageIds = ref<Set<string>>(new Set())
+const highlightedSearchSourceId = ref('')
+const searchPanelMessageId = ref('')
 const displayedConversation = shallowRef<StudioConversation | null>(props.conversation)
 const messageViewCache = new Map<string, { signature: MessageViewSignature; revision: number; view: StudioMessageView }>()
 const stringSignatureCache = new Map<string, { value: string; signature: string }>()
 let conversationRenderFrameId: number | null = null
 let conversationRenderToken = 0
-let scrollResetFrameId: number | null = null
-let scrollResetToken = 0
+let scrollLatestFrameId: number | null = null
+let scrollLatestToken = 0
+let searchSourceHighlightTimer: number | null = null
 
 const taskById = computed(() => new Map(props.tasks.map((task) => [task.id, task])))
 const allMessages = computed(() => displayedConversation.value?.messages || [])
@@ -264,6 +349,10 @@ const visibleMessages = computed(() => {
 const hiddenMessageCount = computed(() => Math.max(0, allMessages.value.length - visibleMessages.value.length))
 const messageViews = computed(() => {
   return visibleMessages.value.map((message) => buildMessageView(message))
+})
+const activeSearchSourceMessage = computed(() => {
+  if (!searchPanelMessageId.value) return null
+  return allMessages.value.find((message) => message.id === searchPanelMessageId.value && message.searchSources?.length) || null
 })
 
 function buildMessageView(message: StudioMessage): StudioMessageView {
@@ -322,6 +411,8 @@ function messageViewSignature(
     message.taskId,
     compactStringSignature(message.error, `${message.id}:error`),
     arraySignature(message.attachments),
+    searchSourcesSignature(message.searchSources, message.id),
+    searchImageGroupsSignature(message.searchImageGroups, message.id),
     imageSlotCount,
     isCollapsible,
     isCollapsed,
@@ -356,6 +447,30 @@ function sameMessageViewSignature(left: MessageViewSignature, right: MessageView
 function arraySignature(values: string[] | undefined) {
   if (!values?.length) return ''
   return values.map((value) => compactStringSignature(value)).join('\u001f')
+}
+
+function searchSourcesSignature(sources: StudioSearchSource[] | undefined, ownerId: string) {
+  if (!sources?.length) return ''
+  return sources
+    .map((source, index) => [
+      index,
+      compactStringSignature(source.title, `${ownerId}:search:${index}:title`),
+      compactStringSignature(source.url, `${ownerId}:search:${index}:url`),
+      compactStringSignature(source.snippet, `${ownerId}:search:${index}:snippet`),
+    ].join('\u001e'))
+    .join('\u001f')
+}
+
+function searchImageGroupsSignature(groups: StudioSearchImageGroup[] | undefined, ownerId: string) {
+  if (!groups?.length) return ''
+  return groups
+    .map((group, index) => [
+      index,
+      compactStringSignature(group.aspectRatio, `${ownerId}:image-group:${index}:aspect`),
+      group.numPerQuery || '',
+      arraySignature(group.queries),
+    ].join('\u001e'))
+    .join('\u001f')
 }
 
 function assetSignature(asset: ImageTaskAsset, ownerId: string, index: number) {
@@ -409,7 +524,8 @@ watch(() => props.conversation, (conversation, previousConversation) => {
 watch(() => displayedConversation.value?.id, () => {
   visibleMessageLimit.value = INITIAL_MESSAGE_LIMIT
   showScrollLatest.value = false
-  scheduleScrollReset()
+  closeSearchSourcePanel()
+  scheduleScrollToLatest()
 })
 
 function assetUrl(asset: ImageTaskAsset) {
@@ -448,6 +564,69 @@ function buildImagePreviewStyle(message: StudioMessage, task: ImageTask | undefi
   } as CSSProperties
 }
 
+function sourceTitle(source: StudioSearchSource, index: number) {
+  return source.title?.trim() || source.url?.trim() || `来源 ${index + 1}`
+}
+
+function sourceHost(url: string | undefined) {
+  const value = String(url || '').trim()
+  if (!value) return ''
+  try {
+    return new URL(value).host.replace(/^www\./, '')
+  } catch {
+    return ''
+  }
+}
+
+function searchSourceDomId(messageId: string, sourceIndex: number) {
+  return `studio-search-source-${messageId.replace(/[^a-zA-Z0-9_-]/g, '-')}-${sourceIndex + 1}`
+}
+
+function openSearchSourcePanel(message: StudioMessage, sourceIndex?: number) {
+  openSearchSourcePanelById(message.id, sourceIndex)
+}
+
+function closeSearchSourcePanel() {
+  searchPanelMessageId.value = ''
+  highlightedSearchSourceId.value = ''
+  if (searchSourceHighlightTimer !== null) {
+    window.clearTimeout(searchSourceHighlightTimer)
+    searchSourceHighlightTimer = null
+  }
+}
+
+function openSearchSourcePanelById(messageId: string, sourceIndex?: number) {
+  searchPanelMessageId.value = messageId
+  if (sourceIndex === undefined) {
+    highlightedSearchSourceId.value = ''
+    return
+  }
+  highlightSearchSource(messageId, sourceIndex)
+}
+
+function scrollToCitationSource(href: string) {
+  const match = String(href || '').match(/^studio-citation:([^:]+):(\d+)$/)
+  if (!match) return
+  const messageId = decodeURIComponent(match[1] || '')
+  const sourceIndex = Number(match[2]) - 1
+  if (!messageId || !Number.isInteger(sourceIndex) || sourceIndex < 0) return
+  openSearchSourcePanelById(messageId, sourceIndex)
+}
+
+function highlightSearchSource(messageId: string, sourceIndex: number) {
+  const targetId = searchSourceDomId(messageId, sourceIndex)
+  highlightedSearchSourceId.value = targetId
+  void nextTick(() => {
+    const target = document.getElementById(targetId)
+    target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  })
+  if (searchSourceHighlightTimer !== null) window.clearTimeout(searchSourceHighlightTimer)
+  searchSourceHighlightTimer = window.setTimeout(() => {
+    if (highlightedSearchSourceId.value === targetId) highlightedSearchSourceId.value = ''
+    searchSourceHighlightTimer = null
+  }, 1600)
+}
+
 function trimStringKeyCache<T>(cache: Map<string, T>, maxSize: number) {
   while (cache.size > maxSize) {
     const firstKey = cache.keys().next().value
@@ -468,16 +647,18 @@ function scheduleConversationRender(conversation: StudioConversation | null) {
   })
 }
 
-function scheduleScrollReset() {
-  const token = ++scrollResetToken
-  if (scrollResetFrameId !== null) {
-    window.cancelAnimationFrame(scrollResetFrameId)
+function scheduleScrollToLatest() {
+  const token = ++scrollLatestToken
+  if (scrollLatestFrameId !== null) {
+    window.cancelAnimationFrame(scrollLatestFrameId)
   }
-  scrollResetFrameId = window.requestAnimationFrame(() => {
-    scrollResetFrameId = null
-    if (token !== scrollResetToken) return
-    const el = scrollEl.value
-    if (el) el.scrollTop = 0
+  scrollLatestFrameId = window.requestAnimationFrame(() => {
+    scrollLatestFrameId = null
+    if (token !== scrollLatestToken) return
+    scrollToBottom()
+    window.requestAnimationFrame(() => {
+      if (token === scrollLatestToken) scrollToBottom()
+    })
   })
 }
 
@@ -486,9 +667,13 @@ onBeforeUnmount(() => {
     window.cancelAnimationFrame(conversationRenderFrameId)
     conversationRenderFrameId = null
   }
-  if (scrollResetFrameId !== null) {
-    window.cancelAnimationFrame(scrollResetFrameId)
-    scrollResetFrameId = null
+  if (scrollLatestFrameId !== null) {
+    window.cancelAnimationFrame(scrollLatestFrameId)
+    scrollLatestFrameId = null
+  }
+  if (searchSourceHighlightTimer !== null) {
+    window.clearTimeout(searchSourceHighlightTimer)
+    searchSourceHighlightTimer = null
   }
 })
 
@@ -914,6 +1099,351 @@ defineExpose({
   margin-top: 0.45rem;
   color: hsl(var(--muted-foreground));
   font-size: 0.75rem;
+}
+
+.studio-search-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin-top: 0.65rem;
+  border: 1px solid hsl(var(--primary) / 0.18);
+  border-radius: 999px;
+  background:
+    linear-gradient(135deg, hsl(var(--primary) / 0.1), hsl(var(--muted) / 0.42));
+  color: hsl(var(--foreground));
+  padding: 0.34rem 0.68rem 0.34rem 0.5rem;
+  font-size: 0.72rem;
+  font-weight: 720;
+  line-height: 1;
+  box-shadow: 0 8px 22px hsl(var(--primary) / 0.08);
+  transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+}
+
+.studio-search-source-chip-icon {
+  flex: 0 0 auto;
+  color: hsl(var(--primary));
+}
+
+.studio-search-source-chip-label {
+  color: hsl(var(--foreground));
+}
+
+.studio-search-source-chip strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.13);
+  color: hsl(var(--primary));
+  font-size: 0.68rem;
+  font-weight: 820;
+}
+
+.studio-search-source-chip small {
+  border-left: 1px solid hsl(var(--primary) / 0.16);
+  padding-left: 0.42rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.68rem;
+  font-weight: 780;
+}
+
+.studio-search-source-chip:hover,
+.studio-search-source-chip:focus-visible {
+  border-color: hsl(var(--primary) / 0.34);
+  background:
+    linear-gradient(135deg, hsl(var(--primary) / 0.14), hsl(var(--secondary) / 0.72));
+  box-shadow: 0 10px 26px hsl(var(--primary) / 0.12);
+  transform: translateY(-1px);
+}
+
+.studio-search-image-groups {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+}
+
+.studio-search-image-group {
+  display: grid;
+  gap: 0.42rem;
+  border: 1px solid hsl(var(--border) / 0.68);
+  border-radius: 0.78rem;
+  background: hsl(var(--muted) / 0.32);
+  padding: 0.56rem 0.62rem;
+}
+
+.studio-search-image-group-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: hsl(var(--foreground));
+  font-size: 0.72rem;
+  font-weight: 780;
+  line-height: 1;
+}
+
+.studio-search-image-group-title svg {
+  color: hsl(var(--primary));
+}
+
+.studio-search-image-group-queries {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.32rem;
+}
+
+.studio-search-image-query {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: 1px solid hsl(var(--border) / 0.62);
+  border-radius: 999px;
+  background: hsl(var(--background) / 0.72);
+  padding: 0.24rem 0.48rem;
+  color: hsl(var(--muted-foreground));
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.studio-search-drawer-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 30;
+  background: hsl(var(--background) / 0.42);
+  backdrop-filter: blur(1px);
+}
+
+.studio-search-drawer {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  z-index: 31;
+  display: flex;
+  width: min(25rem, calc(100% - 1.5rem));
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid hsl(var(--border) / 0.82);
+  border-radius: 1.1rem;
+  background: hsl(var(--card));
+  box-shadow: 0 24px 70px hsl(var(--foreground) / 0.18);
+}
+
+.studio-search-drawer-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid hsl(var(--border) / 0.72);
+  padding: 0.9rem 0.95rem 0.75rem;
+}
+
+.studio-search-drawer-header div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.studio-search-drawer-header strong {
+  color: hsl(var(--foreground));
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.studio-search-drawer-header small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.studio-search-drawer-close {
+  display: inline-flex;
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid hsl(var(--border) / 0.72);
+  border-radius: 999px;
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+}
+
+.studio-search-drawer-close:hover,
+.studio-search-drawer-close:focus-visible {
+  border-color: hsl(var(--foreground) / 0.18);
+  background: hsl(var(--secondary));
+  color: hsl(var(--foreground));
+}
+
+.studio-search-drawer-body {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+  align-content: start;
+  gap: 0.55rem;
+  overflow-y: auto;
+  padding: 0.75rem;
+}
+
+.studio-search-source-card {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 0.45rem;
+  border: 1px solid hsl(var(--border) / 0.62);
+  border-radius: 0.78rem;
+  background: hsl(var(--background) / 0.72);
+  padding: 0.5rem 0.6rem;
+  color: hsl(var(--foreground));
+  text-decoration: none;
+  transition: border-color 0.15s, background 0.15s, transform 0.15s;
+}
+
+.studio-search-source-card:hover,
+.studio-search-source-card:focus-visible {
+  border-color: hsl(var(--foreground) / 0.2);
+  background: hsl(var(--background));
+  transform: translateY(-1px);
+}
+
+.studio-search-source-card.is-static {
+  cursor: default;
+}
+
+.studio-search-source-card.is-highlighted {
+  border-color: var(--ui-accent-border, hsl(var(--primary) / 0.35));
+  background: var(--ui-accent-soft, hsl(var(--primary) / 0.08));
+  box-shadow: 0 0 0 3px hsl(var(--primary) / 0.08);
+}
+
+.studio-search-source-index {
+  display: inline-flex;
+  width: 1.35rem;
+  height: 1.35rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: hsl(var(--secondary));
+  color: hsl(var(--muted-foreground));
+  font-size: 0.72rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.studio-search-source-body {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0.14rem;
+}
+
+.studio-search-source-body strong,
+.studio-search-source-body small,
+.studio-search-source-body em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.studio-search-source-body strong {
+  font-size: 0.78rem;
+  font-style: normal;
+  font-weight: 750;
+  line-height: 1.25;
+}
+
+.studio-search-source-body small {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.68rem;
+  font-weight: 650;
+}
+
+.studio-search-source-body em {
+  color: hsl(var(--muted-foreground));
+  font-size: 0.7rem;
+  font-style: normal;
+  line-height: 1.25;
+}
+
+.studio-search-drawer .studio-search-source-body strong,
+.studio-search-drawer .studio-search-source-body em {
+  white-space: normal;
+}
+
+.studio-search-drawer .studio-search-source-body strong {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.studio-search-drawer .studio-search-source-body em {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.studio-search-source-open {
+  margin-top: 0.1rem;
+  color: hsl(var(--muted-foreground));
+}
+
+.studio-search-drawer-fade-enter-active,
+.studio-search-drawer-fade-leave-active,
+.studio-search-drawer-slide-enter-active,
+.studio-search-drawer-slide-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.studio-search-drawer-fade-enter-from,
+.studio-search-drawer-fade-leave-to {
+  opacity: 0;
+}
+
+.studio-search-drawer-slide-enter-from,
+.studio-search-drawer-slide-leave-to {
+  opacity: 0;
+  transform: translateX(1rem);
+}
+
+@media (max-width: 720px) {
+  .studio-search-drawer {
+    right: 0.5rem;
+    left: 0.5rem;
+    width: auto;
+  }
+}
+
+.chat-message-bubble :deep(a[href^='studio-citation:']) {
+  display: inline-flex;
+  min-width: 1.12rem;
+  height: 1.12rem;
+  align-items: center;
+  justify-content: center;
+  margin: 0 0.08rem;
+  border: 1px solid var(--ui-accent-border, hsl(var(--primary) / 0.28));
+  border-radius: 999px;
+  background: var(--ui-accent-soft, hsl(var(--primary) / 0.08));
+  color: var(--ui-accent-strong, hsl(var(--primary)));
+  font-size: 0.68em;
+  font-weight: 800;
+  line-height: 1;
+  text-decoration: none;
+  vertical-align: super;
+}
+
+.chat-message-bubble :deep(a[href^='studio-citation:']:hover),
+.chat-message-bubble :deep(a[href^='studio-citation:']:focus-visible) {
+  border-color: var(--ui-accent-border, hsl(var(--primary) / 0.5));
+  background: hsl(var(--primary) / 0.12);
 }
 
 .chat-markdown {

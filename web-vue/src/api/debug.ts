@@ -7,11 +7,18 @@ export type DebugSearchSource = {
   source_type?: string
 }
 
+export type DebugSearchImageGroup = {
+  queries?: string[]
+  aspect_ratio?: string
+  num_per_query?: number
+}
+
 export type DebugSearchResult = {
   conversation_id?: string
   status?: string
   answer?: string
   sources?: DebugSearchSource[]
+  image_groups?: DebugSearchImageGroup[]
 }
 
 export type DebugChatMessage = {

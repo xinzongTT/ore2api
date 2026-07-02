@@ -141,7 +141,7 @@ import { Button } from 'nanocat-ui'
 import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { imageTasksApi } from '@/api/imageTasks'
 import { streamChatCompletion } from '@/api/chatStream'
-import { debugApi, type DebugChatMessage, type DebugSearchResult, type DebugSearchSource } from '@/api/debug'
+import { debugApi, type DebugChatMessage, type DebugSearchImageGroup, type DebugSearchResult, type DebugSearchSource } from '@/api/debug'
 import {
   DEFAULT_IMAGE_MODEL,
   DEFAULT_IMAGE_QUALITY,
@@ -180,6 +180,8 @@ import type {
   StudioMessageStatus,
   StudioPreviewImage,
   StudioReference,
+  StudioSearchImageGroup,
+  StudioSearchSource,
 } from '@/components/studio/types'
 
 defineOptions({ name: 'Studio' })
@@ -388,11 +390,21 @@ function normalizeMessage(item: unknown): StudioMessage | null {
   const content = cleanText(raw.content)
   const taskId = cleanText(raw.taskId)
   if (!content && !taskId) return null
+  const id = cleanText(raw.id) || createId('message')
+  const mode = raw.mode === 'chat' || raw.mode === 'search' ? raw.mode : 'image'
+  const normalizedContent = mode === 'search' ? cleanSearchAnswer(content) : content
+  const migratedSearchResult = mode === 'search' ? splitLegacySearchResult(normalizedContent) : { content: normalizedContent, sources: undefined }
+  const searchSources = normalizeSearchSources(raw.searchSources) || migratedSearchResult.sources
+  const searchImageGroups = mode === 'search'
+    ? normalizeSearchImageGroups(raw.searchImageGroups) || extractSearchImageGroupsFromText(content)
+    : undefined
   return {
-    id: cleanText(raw.id) || createId('message'),
+    id,
     role: raw.role === 'assistant' ? 'assistant' : 'user',
-    mode: raw.mode === 'chat' || raw.mode === 'search' ? raw.mode : 'image',
-    content,
+    mode,
+    content: mode === 'search'
+      ? linkSearchCitations(migratedSearchResult.content, id, searchSources?.length || 0)
+      : migratedSearchResult.content,
     createdAt: cleanText(raw.createdAt) || new Date().toISOString(),
     status: normalizeMessageStatus(raw.status),
     model: cleanText(raw.model) || undefined,
@@ -401,7 +413,91 @@ function normalizeMessage(item: unknown): StudioMessage | null {
     taskId: taskId || undefined,
     error: cleanText(raw.error) || undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.map(cleanText).filter(Boolean).slice(0, 8) : undefined,
+    searchSources,
+    searchImageGroups,
   }
+}
+
+function normalizeSearchImageGroups(value: unknown): StudioSearchImageGroup[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const groups = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const raw = item as DebugSearchImageGroup & { aspectRatio?: unknown; numPerQuery?: unknown; query?: unknown; queries?: unknown }
+      const rawQueries = Array.isArray(raw.queries)
+        ? raw.queries
+        : Array.isArray(raw.query)
+          ? raw.query
+          : typeof raw.query === 'string'
+            ? [raw.query]
+            : []
+      const queries = rawQueries.map((query) => cleanText(query)).filter(Boolean).slice(0, 6)
+      if (!queries.length) return null
+      const aspectRatio = cleanText(raw.aspect_ratio ?? raw.aspectRatio)
+      const numPerQueryValue = Number(raw.num_per_query ?? raw.numPerQuery)
+      return {
+        queries,
+        aspectRatio: aspectRatio || undefined,
+        numPerQuery: Number.isFinite(numPerQueryValue) && numPerQueryValue > 0 ? numPerQueryValue : undefined,
+      }
+    })
+    .filter((item): item is StudioSearchImageGroup => Boolean(item))
+    .slice(0, 4)
+  return groups.length ? groups : undefined
+}
+
+function extractSearchImageGroupsFromText(value: unknown): StudioSearchImageGroup[] | undefined {
+  const text = cleanText(value)
+  if (!text) return undefined
+  const groups: unknown[] = []
+  text.replace(/image_group([^]*)/g, (_match, payload: string) => {
+    try {
+      groups.push(JSON.parse(payload || '{}'))
+    } catch {
+      // ignore malformed upstream marker
+    }
+    return ''
+  })
+  return normalizeSearchImageGroups(groups)
+}
+
+function normalizeSearchSources(value: unknown): StudioSearchSource[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const sources = value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null
+      const raw = item as DebugSearchSource
+      const source = {
+        title: cleanText(raw.title),
+        url: cleanText(raw.url),
+        snippet: cleanText(raw.snippet),
+      }
+      return source.title || source.url || source.snippet ? source : null
+    })
+    .filter((item): item is StudioSearchSource => Boolean(item))
+  return sources.length ? sources : undefined
+}
+
+function splitLegacySearchResult(content: string): { content: string; sources?: StudioSearchSource[] } {
+  const match = content.match(/\n{2,}\*\*来源\*\*\n([\s\S]+)$/)
+  if (!match || typeof match.index !== 'number') return { content }
+  const sources = match[1]
+    .split('\n')
+    .map(parseLegacySearchSourceLine)
+    .filter((source): source is StudioSearchSource => Boolean(source))
+  if (!sources.length) return { content }
+  return { content: content.slice(0, match.index).trim(), sources }
+}
+
+function parseLegacySearchSourceLine(line: string): StudioSearchSource | null {
+  const raw = cleanText(line)
+  if (!raw) return null
+  const match = raw.match(/^\d+\.\s+(?:\[([^\]]+)\]\(([^)]+)\)|(.+?))(?:\s+—\s+(.+))?$/)
+  if (!match) return null
+  const title = cleanText((match[1] || match[3] || '').replace(/\\([\[\]])/g, '$1'))
+  const url = cleanText(match[2]).replace(/%20/g, ' ').replace(/%29/g, ')')
+  const snippet = cleanText(match[4])
+  return title || url || snippet ? { title, url, snippet } : null
 }
 
 function normalizeMessageStatus(value: unknown): StudioMessageStatus | undefined {
@@ -966,7 +1062,10 @@ async function sendSearchMessage(conversation: StudioConversation, prompt: strin
 
   try {
     const result = await debugApi.search(prompt)
-    assistantMessage.content = formatSearchResult(result)
+    const sources = normalizeSearchSources(result.sources)
+    assistantMessage.searchSources = sources
+    assistantMessage.searchImageGroups = normalizeSearchImageGroups(result.image_groups) || extractSearchImageGroupsFromText(result.answer)
+    assistantMessage.content = formatSearchResult(result, assistantMessage.id, sources?.length || 0)
     assistantMessage.status = 'done'
     markConversationNotice(conversation.id, 'done')
   } catch (error) {
@@ -982,29 +1081,32 @@ async function sendSearchMessage(conversation: StudioConversation, prompt: strin
   }
 }
 
-function formatSearchResult(result: DebugSearchResult) {
-  const answer = cleanText(result.answer) || '搜索完成，但上游没有返回摘要。'
-  const sources = Array.isArray(result.sources) ? result.sources.filter((source) => cleanText(source.url) || cleanText(source.title) || cleanText(source.snippet)) : []
-  if (!sources.length) return answer
-  const sourceLines = sources.slice(0, 8).map(formatSearchSource).filter(Boolean)
-  return sourceLines.length ? `${answer}\n\n**来源**\n${sourceLines.join('\n')}` : answer
+function formatSearchResult(result: DebugSearchResult, ownerId: string, sourceCount: number) {
+  const answer = cleanSearchAnswer(result.answer) || '搜索完成，但上游没有返回摘要。'
+  return linkSearchCitations(answer, ownerId, sourceCount)
 }
 
-function formatSearchSource(source: DebugSearchSource, index: number) {
-  const title = cleanText(source.title) || cleanText(source.url) || `来源 ${index + 1}`
-  const url = cleanText(source.url)
-  const snippet = cleanText(source.snippet)
-  const suffix = snippet ? ` — ${snippet}` : ''
-  if (!url) return `${index + 1}. ${title}${suffix}`
-  return `${index + 1}. [${escapeMarkdownLinkText(title)}](${escapeMarkdownUrl(url)})${suffix}`
+function cleanSearchAnswer(value: unknown) {
+  return cleanText(value)
+    .replace(/\ue200cite\ue202([^\ue201]*)\ue201/g, (_match, citationId: string) => {
+      const matched = String(citationId || '').match(/search(\d+)/)
+      return matched ? `[${Number(matched[1]) + 1}]` : ''
+    })
+    .replace(/\ue200image_group\ue202([^\ue201]*)\ue201/g, '')
+    .replace(/\ue200(?!cite\ue202|image_group\ue202)[a-zA-Z0-9_]+\ue202[^\ue201]*\ue201/g, '')
+    .replace(/[ \t]+\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
 }
 
-function escapeMarkdownLinkText(value: string) {
-  return value.replace(/[\[\]]/g, '\\$&')
-}
-
-function escapeMarkdownUrl(value: string) {
-  return value.replace(/\)/g, '%29').replace(/\s/g, '%20')
+function linkSearchCitations(content: string, ownerId: string, sourceCount: number) {
+  const encodedOwnerId = encodeURIComponent(ownerId)
+  return content.replace(/\[(\d{1,2})\](?!\()/g, (matched, rawIndex: string) => {
+    const index = Number(rawIndex)
+    if (!Number.isInteger(index) || index < 1) return matched
+    if (!sourceCount || index > sourceCount) return ''
+    return `[${index}](studio-citation:${encodedOwnerId}:${index})`
+  }).replace(/\s+([，。！？；：,.!?;:])/g, '$1')
 }
 
 async function sendImageMessage(conversation: StudioConversation, prompt: string, files: File[]) {

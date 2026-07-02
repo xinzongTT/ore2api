@@ -22,6 +22,20 @@ export interface StudioMessage {
   taskId?: string
   error?: string
   attachments?: string[]
+  searchSources?: StudioSearchSource[]
+  searchImageGroups?: StudioSearchImageGroup[]
+}
+
+export interface StudioSearchSource {
+  title?: string
+  url?: string
+  snippet?: string
+}
+
+export interface StudioSearchImageGroup {
+  queries: string[]
+  aspectRatio?: string
+  numPerQuery?: number
 }
 
 export interface StudioConversation {

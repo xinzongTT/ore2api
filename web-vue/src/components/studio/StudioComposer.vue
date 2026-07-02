@@ -352,7 +352,7 @@ const chatReasoningEffortOptions = [
   { label: '低', value: 'low' },
   { label: '中', value: 'medium' },
   { label: '高', value: 'high' },
-  { label: '扩展', value: 'extended' },
+  { label: '超高', value: 'extended' },
 ]
 
 const imageModelSelectOptions = computed(() => props.imageModelOptions.map((model) => ({
@@ -615,12 +615,13 @@ onBeforeUnmount(() => {
 }
 
 .chat-select-wrap {
-  min-width: 9rem;
+  display: inline-flex;
+  min-width: 0;
   max-width: min(18rem, 45vw);
 }
 
 .chat-select-wrap--effort {
-  min-width: 7rem;
+  min-width: 0;
   max-width: 9rem;
 }
 

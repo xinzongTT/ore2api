@@ -22,6 +22,10 @@ const props = defineProps<{
   content: string
 }>()
 
+const emit = defineEmits<{
+  'citation-click': [href: string]
+}>()
+
 const MAX_RENDER_CACHE_SIZE = 360
 const renderCache = new Map<string, string>()
 
@@ -107,6 +111,12 @@ function renderMarkdownCached(content: string) {
 
 async function handleMarkdownClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
+  const citationLink = target?.closest<HTMLAnchorElement>('a[href^="studio-citation:"]')
+  if (citationLink) {
+    event.preventDefault()
+    emit('citation-click', citationLink.getAttribute('href') || '')
+    return
+  }
   const button = target?.closest<HTMLButtonElement>('.studio-code-copy')
   if (!button) return
   const block = button.closest('.studio-code-block')

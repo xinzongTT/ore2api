@@ -427,11 +427,15 @@ def _download_image_bytes_with_monitor(
         raise
     if request.trace_image_perf:
         download_ms = _elapsed_ms(download_started)
+        download_bytes = sum(len(image) for image in downloaded_images)
+        download_kbps = int((download_bytes / 1024) / (download_ms / 1000)) if download_ms > 0 else 0
         _monitor_image_stage(
             request,
             "image_download_done",
             conversation_id=conversation_id,
             download_ms=download_ms,
+            download_bytes=download_bytes,
+            download_kbps=download_kbps,
             url_count=len(image_urls),
             image_count=len(downloaded_images),
             index=index,
@@ -442,6 +446,8 @@ def _download_image_bytes_with_monitor(
             "call_id": request.call_id,
             "conversation_id": conversation_id,
             "download_ms": download_ms,
+            "download_bytes": download_bytes,
+            "download_kbps": download_kbps,
             "url_count": len(image_urls),
             "image_count": len(downloaded_images),
         }

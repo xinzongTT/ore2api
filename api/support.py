@@ -86,6 +86,19 @@ def sanitize_sub2api_servers(servers: list[dict]) -> list[dict]:
     return [sanitized for server in servers if (sanitized := sanitize_sub2api_server(server)) is not None]
 
 
+def _account_watcher_refresh_tokens(
+        limited_tokens: list[str],
+        expiring_tokens: list[str],
+) -> list[str]:
+    """Accounts that really need periodic upstream refresh.
+
+    Normal healthy accounts are verified when they are selected for work.  Polling
+    every normal account on every watcher tick creates a large amount of
+    upstream traffic under load, without improving image dispatch.
+    """
+    return list(dict.fromkeys([*limited_tokens, *expiring_tokens]))
+
+
 def start_limited_account_watcher(stop_event: Event) -> Thread:
     interval_seconds = config.refresh_account_interval_minute * 60
 
@@ -96,15 +109,15 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                 normal_tokens = account_service.list_normal_tokens()
                 expiring_tokens = account_service.list_expiring_access_tokens()
                 keepalive_tokens = account_service.list_refresh_token_keepalive_tokens()
-                tokens = list(dict.fromkeys([*limited_tokens, *normal_tokens, *expiring_tokens]))
+                tokens = _account_watcher_refresh_tokens(limited_tokens, expiring_tokens)
                 expiring_token_set = set(expiring_tokens)
                 keepalive_tokens = [token for token in keepalive_tokens if token not in expiring_token_set]
                 if tokens:
                     print(
                         "[account-watcher] checking "
                         f"{len(limited_tokens)} limited accounts, "
-                        f"{len(normal_tokens)} normal accounts, "
-                        f"{len(expiring_tokens)} expiring access tokens"
+                        f"{len(expiring_tokens)} expiring access tokens "
+                        f"(skipping {len(normal_tokens)} normal accounts)"
                     )
                     account_service.refresh_accounts(tokens)
                 if keepalive_tokens:

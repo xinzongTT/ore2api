@@ -383,6 +383,29 @@ class OpenAIBackendAPI:
             return {}
         return dict(self._http_timings.get(name, {}) or {})
 
+    @classmethod
+    def _is_image_stream_terminal_payload(cls, payload: str) -> bool:
+        """Return True when an image SSE payload says the assistant turn is done.
+
+        ChatGPT sometimes sends a final assistant/tool-argument message with
+        ``finished_successfully`` and ``is_complete`` metadata, then keeps the
+        HTTP/SSE connection open without emitting image file IDs.  Waiting for
+        the transport to close wastes the whole curl timeout.  Once this
+        structured terminal marker appears, the image flow can safely leave the
+        SSE phase and use the existing conversation/task polling path.
+        """
+        if not payload or payload == "[DONE]":
+            return False
+        try:
+            event = json.loads(payload)
+        except json.JSONDecodeError:
+            return False
+        if not isinstance(event, dict):
+            return False
+        if not cls._payload_has_completion_marker(event):
+            return False
+        return any(cls._is_terminal_status_value(status) for status in cls._payload_status_values(event))
+
     def _iter_timed_sse_payloads(
             self,
             response: requests.Response,
@@ -3276,11 +3299,18 @@ class OpenAIBackendAPI:
         response = self._start_image_generation(prompt, requirements, conduit_token, model, references)
         self._report_progress("generating")
         try:
-            yield from self._iter_timed_sse_payloads(
+            for payload in self._iter_timed_sse_payloads(
                 response,
                 max_duration_secs=config.image_stream_timeout_secs,
                 timing_key="image_generation_stream",
-            )
+            ):
+                yield payload
+                if self._is_image_stream_terminal_payload(payload):
+                    logger.info({
+                        "event": "image_stream_terminal_break",
+                        "payload_preview": diagnostic_excerpt(payload, 1000),
+                    })
+                    break
         finally:
             response.close()
 

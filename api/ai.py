@@ -71,6 +71,31 @@ class EditableFileTaskRequest(BaseModel):
     client_task_id: str | None = None
 
 
+TRACE_REQUEST_HEADERS = {
+    "x-request-id": "x_request_id",
+    "x-newapi-request-id": "x_newapi_request_id",
+    "x-oneapi-request-id": "x_oneapi_request_id",
+    "x-channel-id": "x_channel_id",
+    "x-channel-name": "x_channel_name",
+}
+
+
+def attach_trace_headers(call: LoggedCall, request: Request) -> None:
+    if not call._trace_image_perf():
+        return
+    headers: dict[str, str] = {}
+    for header, field in TRACE_REQUEST_HEADERS.items():
+        value = str(request.headers.get(header) or "").strip()
+        if value:
+            headers[field] = value[:160]
+    if headers:
+        existing = call.trace_metadata.get("request_headers")
+        if isinstance(existing, dict):
+            existing.update(headers)
+        else:
+            call.trace_metadata["request_headers"] = headers
+
+
 async def filter_or_log(call: LoggedCall, text: str) -> None:
     try:
         await run_in_threadpool(check_request, text)
@@ -100,6 +125,7 @@ def create_router() -> APIRouter:
         payload = body.model_dump(mode="python")
         payload["base_url"] = resolve_image_base_url(request)
         call = LoggedCall(identity, "/v1/images/generations", body.model, "文生图", request_text=body.prompt)
+        attach_trace_headers(call, request)
         call.attach_trace_metadata(payload)
         await filter_or_log(call, body.prompt)
         return await call.run(openai_v1_image_generations.handle, payload)
@@ -114,6 +140,7 @@ def create_router() -> APIRouter:
         prompt = str(payload["prompt"])
         model = str(payload["model"])
         call = LoggedCall(identity, "/v1/images/edits", model, "图生图", request_text=prompt)
+        attach_trace_headers(call, request)
         call.attach_trace_metadata(payload)
         await filter_or_log(call, prompt)
         payload["images"] = await read_image_sources(image_sources)
@@ -138,6 +165,7 @@ def create_router() -> APIRouter:
             request_text=request_preview,
             request_shape=request_shape(payload.get("messages")),
         )
+        attach_trace_headers(call, request)
         call.attach_trace_metadata(payload)
         await filter_or_log(call, request_preview)
         return await call.run(openai_v1_chat_complete.handle, payload)

@@ -1,4 +1,8 @@
 import apiClient from './client'
+import {
+  resolveImageRequestPreset,
+  supportsHighResolutionImageSizes as supportsOreateHighResolutionImageSizes,
+} from '@/config/imageSizes'
 
 export type ImageTaskStatus = 'queued' | 'running' | 'success' | 'error'
 export type ImageTaskMode = 'generate' | 'edit'
@@ -76,6 +80,9 @@ export interface CreateGenerationTaskInput {
   size?: string
   quality?: string
   clientTaskId?: string
+  files?: File[]
+  images?: string[]
+  imageUrls?: string[]
 }
 
 export interface CreateEditTaskInput extends CreateGenerationTaskInput {
@@ -173,8 +180,7 @@ export const HIGH_RES_IMAGE_SIZE_OPTIONS: ImageSizeOption[] = HIGH_RES_IMAGE_SIZ
 export const IMAGE_SIZE_OPTIONS: ImageSizeOption[] = IMAGE_SIZE_PRESETS
 
 export function supportsHighResolutionImageSizes(model: string) {
-  const value = String(model || '').toLowerCase()
-  return value.includes('codex-gpt-image-2') || value.includes('gpt-image-2-codex')
+  return supportsOreateHighResolutionImageSizes(model)
 }
 
 export function resolveImageSizePresets(model: string): ImageSizePreset[] {
@@ -310,6 +316,26 @@ function normalizeUrlList(value: string[] | undefined) {
   return (value || []).map((item) => item.trim()).filter(Boolean)
 }
 
+function readFileAsDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(String(reader.result || ''))
+    reader.onerror = () => reject(new Error('读取参考图失败'))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function referenceImagesFromInput(input: CreateGenerationTaskInput) {
+  const images = [
+    ...(input.images || []).map((item) => item.trim()).filter(Boolean),
+    ...normalizeUrlList(input.imageUrls),
+  ]
+  for (const file of input.files || []) {
+    images.push(await readFileAsDataUrl(file))
+  }
+  return images.slice(0, 8)
+}
+
 function createEditForm(input: CreateEditTaskInput) {
   const form = new FormData()
   form.append('client_task_id', input.clientTaskId || createClientTaskId('edit'))
@@ -393,13 +419,19 @@ export const imageTasksApi = {
   },
 
   createGeneration: async (input: CreateGenerationTaskInput) => {
+    const model = input.model || DEFAULT_IMAGE_MODEL
+    const preset = resolveImageRequestPreset(input.size, model)
+    const images = await referenceImagesFromInput(input)
     const response = await apiClient.post<Record<string, unknown>, ImageTask>('/api/image-tasks/generations', {
       client_task_id: input.clientTaskId || createClientTaskId('gen'),
       prompt: input.prompt,
-      model: input.model || DEFAULT_IMAGE_MODEL,
+      model,
       n: normalizeImageCount(input.n),
-      size: requestSize(input.size),
+      size: preset.size,
+      aspect_ratio: preset.aspectRatio,
+      resolution: preset.resolution,
       quality: input.quality || DEFAULT_IMAGE_QUALITY,
+      images,
     })
     return normalizeTask(response)
   },

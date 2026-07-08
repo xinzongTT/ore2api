@@ -95,8 +95,10 @@
         v-model:chat-model="chatModel"
         v-model:chat-reasoning-effort="chatReasoningEffort"
         :image-form="imageForm"
+        :video-form="videoForm"
         :chat-model-options="chatModelOptions"
         :image-model-options="imageModelOptions"
+        :video-model-options="videoModelOptions"
         :references="referencePreviews"
         :is-sending="isSending"
         :is-streaming="isStreaming"
@@ -106,6 +108,10 @@
         @update:image-size="imageForm.size = $event"
         @update:image-quality="imageForm.quality = $event"
         @update:image-count="imageForm.n = $event"
+        @update:video-model="videoForm.model = $event"
+        @update:video-duration="videoForm.duration = $event"
+        @update:video-ratio="videoForm.aspectRatio = $event"
+        @update:video-resolution="videoForm.resolution = $event"
         @submit="sendMessage"
         @stop="stopStreaming"
         @cancel-edit="cancelMessageEdit"
@@ -140,6 +146,13 @@ import { Icon } from '@iconify/vue'
 import { Button } from 'nanocat-ui'
 import { computed, defineAsyncComponent, nextTick, onActivated, onBeforeUnmount, onDeactivated, onMounted, reactive, ref, watch } from 'vue'
 import { imageTasksApi } from '@/api/imageTasks'
+import {
+  DEFAULT_VIDEO_DURATION,
+  DEFAULT_VIDEO_MODEL,
+  DEFAULT_VIDEO_RATIO,
+  DEFAULT_VIDEO_RESOLUTION,
+  videoGenerationsApi,
+} from '@/api/videoGenerations'
 import { streamChatCompletion } from '@/api/chatStream'
 import { debugApi, type DebugChatMessage, type DebugSearchImageGroup, type DebugSearchResult, type DebugSearchSource } from '@/api/debug'
 import {
@@ -182,6 +195,7 @@ import type {
   StudioReference,
   StudioSearchImageGroup,
   StudioSearchSource,
+  StudioVideoForm,
 } from '@/components/studio/types'
 
 defineOptions({ name: 'Studio' })
@@ -193,7 +207,7 @@ const StudioMobileHistory = defineAsyncComponent(() => import('@/components/stud
 const settingsStore = useSettingsStore()
 const toast = useToast()
 const confirmDialog = useConfirmDialog()
-const { chatModels, imageModels, loadModelCatalog } = useModelCatalog(() => settingsStore.settings)
+const { chatModels, imageModels, videoModels, loadModelCatalog } = useModelCatalog(() => settingsStore.settings)
 
 const defaultSidebarWidth = 244
 const composeMode = ref<StudioComposeMode>(normalizeMode(getStringPreference(preferenceKeys.studioActiveMode, 'image')))
@@ -216,6 +230,13 @@ const imageForm = reactive<StudioImageForm>({
   size: DEFAULT_IMAGE_SIZE,
   quality: DEFAULT_IMAGE_QUALITY,
   n: 1,
+})
+const videoForm = reactive<StudioVideoForm>({
+  model: getStringPreference(preferenceKeys.studioVideoModel, DEFAULT_VIDEO_MODEL) || DEFAULT_VIDEO_MODEL,
+  duration: DEFAULT_VIDEO_DURATION,
+  aspectRatio: DEFAULT_VIDEO_RATIO,
+  resolution: DEFAULT_VIDEO_RESOLUTION,
+  audio: false,
 })
 
 const conversations = ref<StudioConversation[]>(loadConversations())
@@ -257,6 +278,7 @@ const activeHeaderSubtitle = computed(() => {
   if (isStreaming.value) return '正在回复'
   if (isSending.value) {
     if (composeMode.value === 'search') return '正在搜索'
+    if (composeMode.value === 'video') return '正在提交视频'
     if (composeMode.value === 'image') return '正在提交图片'
     return '正在请求'
   }
@@ -318,6 +340,7 @@ const conversationBadges = computed<Record<string, StudioConversationBadge>>(() 
 })
 const chatModelOptions = computed(() => uniqueStrings(['auto', ...chatModels.value]))
 const imageModelOptions = computed(() => uniqueStrings([imageForm.model, DEFAULT_IMAGE_MODEL, ...imageModels.value]))
+const videoModelOptions = computed(() => uniqueStrings([videoForm.model, DEFAULT_VIDEO_MODEL, ...videoModels.value]))
 
 watch(composeMode, (mode) => setStringPreference(preferenceKeys.studioActiveMode, mode))
 watch(chatModel, (model) => setStringPreference(preferenceKeys.studioChatModel, model || 'auto'))
@@ -333,9 +356,11 @@ watch(() => imageForm.model, (model) => {
   setStringPreference(preferenceKeys.studioImageModel, model || DEFAULT_IMAGE_MODEL)
   if (!isImageSizeSupportedByModel(imageForm.size, model)) imageForm.size = DEFAULT_IMAGE_SIZE
 })
+watch(() => videoForm.model, (model) => setStringPreference(preferenceKeys.studioVideoModel, model || DEFAULT_VIDEO_MODEL))
 
 function normalizeMode(value: string): StudioComposeMode {
-  if (value === 'chat' || value === 'search') return value
+  if (value === 'video') return value
+  if (value === 'image') return value
   return 'image'
 }
 
@@ -391,7 +416,7 @@ function normalizeMessage(item: unknown): StudioMessage | null {
   const taskId = cleanText(raw.taskId)
   if (!content && !taskId) return null
   const id = cleanText(raw.id) || createId('message')
-  const mode = raw.mode === 'chat' || raw.mode === 'search' ? raw.mode : 'image'
+  const mode = raw.mode === 'chat' || raw.mode === 'search' || raw.mode === 'video' ? raw.mode : 'image'
   const normalizedContent = mode === 'search' ? cleanSearchAnswer(content) : content
   const migratedSearchResult = mode === 'search' ? splitLegacySearchResult(normalizedContent) : { content: normalizedContent, sources: undefined }
   const searchSources = normalizeSearchSources(raw.searchSources) || migratedSearchResult.sources
@@ -411,6 +436,10 @@ function normalizeMessage(item: unknown): StudioMessage | null {
     imageSize: cleanText(raw.imageSize) || undefined,
     imageCount: Number.isFinite(Number(raw.imageCount)) ? normalizeImageCount(raw.imageCount) : undefined,
     taskId: taskId || undefined,
+    videoAssets: Array.isArray(raw.videoAssets) ? raw.videoAssets : undefined,
+    videoRatio: cleanText(raw.videoRatio) || undefined,
+    videoDuration: Number.isFinite(Number(raw.videoDuration)) ? Number(raw.videoDuration) : undefined,
+    videoResolution: cleanText(raw.videoResolution) || undefined,
     error: cleanText(raw.error) || undefined,
     attachments: Array.isArray(raw.attachments) ? raw.attachments.map(cleanText).filter(Boolean).slice(0, 8) : undefined,
     searchSources,
@@ -729,7 +758,7 @@ function editMessage(message: StudioMessage) {
   activeConversationId.value = target.conversation.id
   editingMessageId.value = message.id
   composerText.value = target.message.content
-  composeMode.value = target.message.mode
+  composeMode.value = normalizeMode(target.message.mode)
   composerError.value = ''
   clearReferences()
   scheduleScrollToBottom()
@@ -759,16 +788,15 @@ async function retryAssistantMessage(message: StudioMessage) {
   clearConversationNotice(conversation.id)
   touchConversation(conversation)
   isSending.value = true
+  const retryMode = normalizeMode(previousUserMessage.mode)
   try {
-    if (previousUserMessage.mode === 'chat') {
-      await sendTextMessage(conversation)
-    } else if (previousUserMessage.mode === 'search') {
-      await sendSearchMessage(conversation, previousUserMessage.content)
+    if (retryMode === 'video') {
+      await sendVideoMessage(conversation, previousUserMessage.content)
     } else {
       await sendImageMessage(conversation, previousUserMessage.content, [])
     }
   } catch (error) {
-    const mode = previousUserMessage.mode
+    const mode = retryMode
     const retryError = errorMessage(error, modeRetryErrorFallback(mode))
     composerError.value = retryError
     markConversationNotice(conversation.id, 'error')
@@ -802,7 +830,7 @@ function cancelMessageEdit(clearComposer = true) {
 
 function fillComposerFromMessage(message: StudioMessage) {
   composerText.value = message.content
-  composeMode.value = message.mode
+  composeMode.value = normalizeMode(message.mode)
   composerError.value = ''
 }
 
@@ -863,14 +891,14 @@ async function sendMessage() {
     return
   }
   const conversation = ensureConversation(content)
-  const mode = composeMode.value
+  const mode = normalizeMode(composeMode.value)
   const files = selectedFiles.value.slice(0, 8)
   addMessage(conversation, {
     role: 'user',
     mode,
     content,
     status: 'done',
-    attachments: mode === 'image' && referencePreviews.value.length ? referencePreviews.value.map((file) => file.name) : undefined,
+    attachments: (mode === 'image' || mode === 'video') && referencePreviews.value.length ? referencePreviews.value.map((file) => file.name) : undefined,
   })
   composerText.value = ''
   isSending.value = true
@@ -880,6 +908,9 @@ async function sendMessage() {
       await sendTextMessage(conversation)
     } else if (mode === 'search') {
       await sendSearchMessage(conversation, content)
+    } else if (mode === 'video') {
+      await sendVideoMessage(conversation, content, files)
+      clearReferences()
     } else {
       await sendImageMessage(conversation, content, files)
       clearReferences()
@@ -909,7 +940,7 @@ async function sendEditedMessage(content: string) {
   }
 
   const { conversation, index, message } = target
-  const mode = composeMode.value
+  const mode = normalizeMode(composeMode.value)
   const files = selectedFiles.value.slice(0, 8)
   const editedMessage: StudioMessage = {
     ...message,
@@ -917,7 +948,7 @@ async function sendEditedMessage(content: string) {
     content,
     status: 'done',
     error: undefined,
-    attachments: mode === 'image' && referencePreviews.value.length ? referencePreviews.value.map((file) => file.name) : undefined,
+    attachments: (mode === 'image' || mode === 'video') && referencePreviews.value.length ? referencePreviews.value.map((file) => file.name) : undefined,
   }
 
   activeConversationId.value = conversation.id
@@ -940,6 +971,9 @@ async function sendEditedMessage(content: string) {
       await sendTextMessage(conversation)
     } else if (mode === 'search') {
       await sendSearchMessage(conversation, content)
+    } else if (mode === 'video') {
+      await sendVideoMessage(conversation, content, files)
+      clearReferences()
     } else {
       await sendImageMessage(conversation, content, files)
       clearReferences()
@@ -1047,6 +1081,7 @@ function buildChatMessages(conversation: StudioConversation, currentAssistantId:
 
 function buildChatContextContent(message: StudioMessage) {
   if (message.role === 'user' && message.mode === 'image') return `画图请求：${message.content}`
+  if (message.role === 'user' && message.mode === 'video') return `视频请求：${message.content}`
   if (message.role === 'user' && message.mode === 'search') return `搜索请求：${message.content}`
   return message.content
 }
@@ -1113,7 +1148,7 @@ async function sendImageMessage(conversation: StudioConversation, prompt: string
   const assistantMessage = addMessage(conversation, {
     role: 'assistant',
     mode: 'image',
-    content: files.length ? '图像编辑任务已提交' : '图片任务已提交',
+    content: '图片任务已提交',
     status: 'queued',
     model: imageForm.model,
     imageSize: imageForm.size,
@@ -1122,22 +1157,14 @@ async function sendImageMessage(conversation: StudioConversation, prompt: string
 
   let task: ImageTask
   try {
-    task = files.length
-      ? await imageTasksApi.createEdit({
-        prompt,
-        files,
-        model: imageForm.model || DEFAULT_IMAGE_MODEL,
-        n: normalizeImageCount(imageForm.n),
-        size: imageForm.size,
-        quality: imageForm.quality || DEFAULT_IMAGE_QUALITY,
-      })
-      : await imageTasksApi.createGeneration({
-        prompt,
-        model: imageForm.model || DEFAULT_IMAGE_MODEL,
-        n: normalizeImageCount(imageForm.n),
-        size: imageForm.size,
-        quality: imageForm.quality || DEFAULT_IMAGE_QUALITY,
-      })
+    task = await imageTasksApi.createGeneration({
+      prompt,
+      model: imageForm.model || DEFAULT_IMAGE_MODEL,
+      n: normalizeImageCount(imageForm.n),
+      size: imageForm.size,
+      quality: imageForm.quality || DEFAULT_IMAGE_QUALITY,
+      files,
+    })
   } catch (error) {
     const message = errorMessage(error, '图片任务提交失败')
     assistantMessage.status = 'error'
@@ -1158,6 +1185,49 @@ async function sendImageMessage(conversation: StudioConversation, prompt: string
   scheduleImagePoll()
 }
 
+async function sendVideoMessage(conversation: StudioConversation, prompt: string, files: File[] = []) {
+  const assistantMessage = addMessage(conversation, {
+    role: 'assistant',
+    mode: 'video',
+    content: '视频生成中...',
+    status: 'sending',
+    model: videoForm.model,
+    videoRatio: videoForm.aspectRatio,
+    videoDuration: videoForm.duration,
+    videoResolution: videoForm.resolution,
+  })
+
+  try {
+    const result = await videoGenerationsApi.create({
+      prompt,
+      model: videoForm.model || DEFAULT_VIDEO_MODEL,
+      duration: videoForm.duration,
+      aspectRatio: videoForm.aspectRatio,
+      resolution: videoForm.resolution,
+      audio: videoForm.audio,
+      image: files[0] ? await readFileAsDataUrl(files[0]) : '',
+    })
+    const assets = (result.data || []).filter((asset) => cleanText(asset.url))
+    if (!assets.length) {
+      throw new Error('上游没有返回可用视频 URL')
+    }
+    assistantMessage.status = 'done'
+    assistantMessage.content = '视频生成完成'
+    assistantMessage.videoAssets = assets
+    markConversationNotice(conversation.id, 'done')
+  } catch (error) {
+    const message = errorMessage(error, '视频生成失败')
+    assistantMessage.status = 'error'
+    assistantMessage.content = message
+    assistantMessage.error = message
+    composerError.value = message
+    markConversationNotice(conversation.id, 'error')
+  } finally {
+    touchConversation(conversation)
+    scheduleScrollToBottom()
+  }
+}
+
 function stopStreaming() {
   streamController?.abort()
 }
@@ -1169,12 +1239,14 @@ function toggleFullscreen() {
 
 
 function modeRequestErrorFallback(mode: StudioComposeMode) {
+  if (mode === 'video') return '视频生成失败'
   if (mode === 'image') return '图片生成失败'
   if (mode === 'search') return '搜索请求失败'
   return '对话请求失败'
 }
 
 function modeRetryErrorFallback(mode: StudioComposeMode) {
+  if (mode === 'video') return '视频重新生成失败'
   if (mode === 'image') return '图片重新生成失败'
   if (mode === 'search') return '搜索重新请求失败'
   return '对话重新生成失败'
@@ -1331,7 +1403,7 @@ async function appendFiles(files: File[]) {
       dataUrl: await readFileAsDataUrl(file),
     })
   }
-  composeMode.value = 'image'
+  if (composeMode.value !== 'video') composeMode.value = 'image'
 }
 
 function removeReference(index: number) {

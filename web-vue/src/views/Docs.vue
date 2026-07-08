@@ -4,7 +4,7 @@
       <PanelHeader title="文档中心">
         <template #copy>
           <p class="mt-1 text-xs text-muted-foreground">
-            当前页面只展示 chatgpt2api 控制台相关接口、运维边界和风险说明。
+            当前页面只展示 oreate2api 控制台相关接口、运维边界和风险说明。
           </p>
         </template>
       </PanelHeader>
@@ -23,14 +23,6 @@
           </InfoCard>
 
           <section class="grid gap-4 lg:grid-cols-2">
-            <InfoCard tag="article" title="聊天模型" tone="muted">
-              <div class="flex flex-wrap gap-2">
-                <MetaChip v-for="model in chatModels" :key="model">
-                  {{ model }}
-                </MetaChip>
-              </div>
-            </InfoCard>
-
             <InfoCard tag="article" title="图片模型" tone="muted">
               <div class="flex flex-wrap gap-2">
                 <MetaChip v-for="model in imageModels" :key="model">
@@ -41,21 +33,13 @@
           </section>
 
           <section class="space-y-2">
-            <p class="text-sm font-semibold">文本对话（/v1/chat/completions）</p>
-            <CodeBlock :content="chatCompletionExample" />
-          </section>
-
-          <section class="space-y-2">
             <p class="text-sm font-semibold">文生图（/v1/images/generations）</p>
             <CodeBlock :content="imageGenerationExample" />
           </section>
 
           <section class="space-y-2">
-            <p class="text-sm font-semibold">图生图（/v1/images/edits）</p>
-            <CodeBlock :content="imageEditExample" />
-            <p class="mt-2 text-xs text-muted-foreground">
-              也支持 image_url / image_b64，mask_url / mask_b64 同理；真实支持情况以后端版本和上游返回为准。
-            </p>
+            <p class="text-sm font-semibold">文生视频（/v1/video/generations）</p>
+            <CodeBlock :content="videoGenerationExample" />
           </section>
         </div>
 
@@ -135,7 +119,6 @@ import { useModelCatalog } from '@/composables/useModelCatalog'
 const activeTab = ref('api')
 const settingsStore = useSettingsStore()
 const {
-  chatModels,
   imageModels,
   loadModelCatalog,
 } = useModelCatalog(() => settingsStore.settings)
@@ -146,19 +129,8 @@ const tabs = [
   { value: 'risk', label: '风险说明' },
 ]
 
-const primaryChatModel = computed(() => chatModels.value[0] || 'gpt-5-mini')
 const primaryImageModel = computed(() => imageModels.value[0] || 'gpt-image-2')
-
-const chatCompletionExample = computed(() => `curl -X POST "http://localhost:7860/v1/chat/completions" \\
-  -H "Content-Type: application/json" \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -d '{
-    "model": "${primaryChatModel.value}",
-    "stream": false,
-    "messages": [
-      { "role": "user", "content": "你好" }
-    ]
-  }'`)
+const primaryVideoModel = 'seedance-2.0-fast'
 
 const imageGenerationExample = computed(() => `curl -X POST "http://localhost:7860/v1/images/generations" \\
   -H "Content-Type: application/json" \\
@@ -171,12 +143,17 @@ const imageGenerationExample = computed(() => `curl -X POST "http://localhost:78
     "response_format": "url"
   }'`)
 
-const imageEditExample = computed(() => `curl -X POST "http://localhost:7860/v1/images/edits" \\
+const videoGenerationExample = computed(() => `curl -X POST "http://localhost:7860/v1/video/generations" \\
+  -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
-  -F "model=${primaryImageModel.value}" \\
-  -F "prompt=把这张图改成赛博风格" \\
-  -F "response_format=url" \\
-  -F "image=@reference.png"`)
+  -d '{
+    "model": "${primaryVideoModel}",
+    "prompt": "一只纸飞机穿过雨后的城市街道",
+    "duration": 5,
+    "aspect_ratio": "16:9",
+    "resolution": "480P",
+    "response_format": "url"
+  }'`)
 
 const operationSections = [
   {

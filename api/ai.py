@@ -2,24 +2,16 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import FileResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.image_inputs import parse_image_edit_request, read_image_sources
 from api.support import require_identity, resolve_image_base_url
-from services.content_filter import check_request, request_shape, request_text
-from services.editable_file_task_service import editable_file_task_service
+from services.content_filter import check_request, request_text
 from services.log_service import LoggedCall
-from services.protocol import (
-    anthropic_v1_messages,
-    openai_v1_chat_complete,
-    openai_v1_image_edit,
-    openai_v1_image_generations,
-    openai_v1_models,
-    openai_v1_response,
-    openai_search,
-)
-from utils.helper import is_image_chat_request
+from services import oreate_backend_api as _oreate_api
+from services.protocol import openai_v1_image_edit
+
+# OreateAI 图像模型 ID 集合 —— 从后端模型表派生，避免与 /v1/models 漂移
 
 
 class ImageGenerationRequest(BaseModel):
@@ -28,9 +20,30 @@ class ImageGenerationRequest(BaseModel):
     n: int = Field(default=1, ge=1, le=4)
     size: str | None = None
     quality: str = "auto"
-    response_format: str = "b64_json"
+    response_format: str = "url"
     history_disabled: bool = True
     stream: bool | None = None
+    # OreateAI 扩展参数
+    aspect_ratio: str = "1:1"    # 16:9 / 1:1 / 2:3 / 3:2 / 3:4 / 4:3 / 4:5 / 5:4 / 9:16 / 21:9
+    resolution: str = "1K"       # 4K / 2K / 1K
+    images: list[str] = Field(default_factory=list)
+    image: str = ""
+    image_url: str = ""
+
+
+class VideoGenerationRequest(BaseModel):
+    prompt: str = Field(..., min_length=1)
+    model: str = "seedance-2.0-fast"
+    n: int = Field(default=1, ge=1, le=4)
+    size: str = "1024x576"
+    duration: int = Field(default=10, ge=1, le=120)
+    aspect_ratio: str = "16:9"   # 16:9 / 9:16 / 1:1
+    resolution: str = "480P"     # 1080P / 720P / 480P
+    response_format: str = "url"
+    audio: bool = False
+    image: str = ""
+    image_url: str = ""
+    images: list[str] = Field(default_factory=list)
 
 
 class ChatCompletionRequest(BaseModel):
@@ -104,6 +117,16 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
         raise
 
 
+def _video_reference_image(payload: dict[str, object]) -> str:
+    image = str(payload.get("image") or payload.get("image_url") or "").strip()
+    if image:
+        return image
+    images = payload.get("images")
+    if isinstance(images, list) and images:
+        return str(images[0] or "").strip()
+    return ""
+
+
 def create_router() -> APIRouter:
     router = APIRouter()
 
@@ -111,7 +134,8 @@ def create_router() -> APIRouter:
     async def list_models(authorization: str | None = Header(default=None)):
         require_identity(authorization)
         try:
-            return await run_in_threadpool(openai_v1_models.list_models)
+            # OreateAI 生图/生视频模型（真实 modelName 见 oreate_backend_api）
+            return await run_in_threadpool(_oreate_api.list_models)
         except Exception as exc:
             raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
 
@@ -128,7 +152,60 @@ def create_router() -> APIRouter:
         attach_trace_headers(call, request)
         call.attach_trace_metadata(payload)
         await filter_or_log(call, body.prompt)
-        return await call.run(openai_v1_image_generations.handle, payload)
+        return await call.run(
+            lambda p: _oreate_api.image_generation(
+                prompt=p["prompt"],
+                model=p["model"],
+                n=p.get("n", 1),
+                size=p.get("size") or "1024x1024",
+                aspect_ratio=p.get("aspect_ratio", "1:1"),
+                resolution=p.get("resolution", "1K"),
+                response_format=p.get("response_format", "url"),
+                images=p.get("images") or [],
+                image=p.get("image", ""),
+                image_url=p.get("image_url", ""),
+            ),
+            payload,
+        )
+
+    @router.post("/v1/video/generations")
+    async def generate_video(
+            body: VideoGenerationRequest,
+            request: Request,
+            authorization: str | None = Header(default=None),
+    ):
+        identity = require_identity(authorization)
+        payload = body.model_dump(mode="python")
+        call = LoggedCall(identity, "/v1/video/generations", body.model, "文生视频", request_text=body.prompt)
+        attach_trace_headers(call, request)
+        await filter_or_log(call, body.prompt)
+        return await call.run(
+            lambda p: _oreate_api.video_generation(
+                prompt=p["prompt"],
+                model=p["model"],
+                n=p.get("n", 1),
+                size=p.get("size") or "1024x576",
+                duration=p.get("duration", 5),
+                aspect_ratio=p.get("aspect_ratio", "16:9"),
+                resolution=p.get("resolution", "480P"),
+                response_format=p.get("response_format", "url"),
+                audio=p.get("audio", False),
+                image=_video_reference_image(p),
+            ),
+            payload,
+        )
+
+    def _removed_openai_feature(feature: str) -> HTTPException:
+        return HTTPException(
+            status_code=410,
+            detail={
+                "error": {
+                    "message": f"{feature} has been removed in this oreate-only build",
+                    "type": "gone",
+                    "code": "410",
+                }
+            },
+        )
 
     @router.post("/v1/images/edits")
     async def edit_images(
@@ -137,138 +214,64 @@ def create_router() -> APIRouter:
     ):
         identity = require_identity(authorization)
         payload, image_sources, mask_sources = await parse_image_edit_request(request)
-        prompt = str(payload["prompt"])
-        model = str(payload["model"])
-        call = LoggedCall(identity, "/v1/images/edits", model, "图生图", request_text=prompt)
-        attach_trace_headers(call, request)
-        call.attach_trace_metadata(payload)
-        await filter_or_log(call, prompt)
-        payload["images"] = await read_image_sources(image_sources)
-        if mask_sources:
-            payload["mask"] = await read_image_sources(mask_sources)
+        images = await read_image_sources(image_sources)
+        masks = await read_image_sources(mask_sources) if mask_sources else []
+        payload["images"] = images
+        payload["mask"] = masks
         payload["base_url"] = resolve_image_base_url(request)
-        return await call.run(openai_v1_image_edit.handle, payload)
+
+        call = LoggedCall(identity, "/v1/images/edits", str(payload.get("model") or "gpt-image-2"), "图生图", request_text=payload.get("prompt", ""))
+        attach_trace_headers(call, request)
+        await filter_or_log(call, str(payload.get("prompt") or ""))
+        return await call.run(lambda p: openai_v1_image_edit.handle(p), payload)
 
     @router.post("/v1/chat/completions")
-    async def create_chat_completion(body: ChatCompletionRequest, request: Request, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        payload = body.model_dump(mode="python")
-        payload["base_url"] = resolve_image_base_url(request)
-        model = str(payload.get("model") or "auto")
-        request_preview = request_text(payload.get("prompt"), payload.get("messages"))
-        image_chat = is_image_chat_request(payload)
-        call = LoggedCall(
-            identity,
-            "/v1/chat/completions",
-            model,
-            "聊天生图" if image_chat else "文本生成",
-            request_text=request_preview,
-            request_shape=request_shape(payload.get("messages")),
-        )
-        attach_trace_headers(call, request)
-        call.attach_trace_metadata(payload)
-        await filter_or_log(call, request_preview)
-        return await call.run(openai_v1_chat_complete.handle, payload)
+    async def create_chat_completion(body: Request, authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/chat/completions")
 
     @router.post("/v1/responses")
-    async def create_response(body: ResponseCreateRequest, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        payload = body.model_dump(mode="python")
-        model = str(payload.get("model") or "auto")
-        request_preview = request_text(payload.get("input"), payload.get("instructions"))
-        call = LoggedCall(
-            identity,
-            "/v1/responses",
-            model,
-            "Responses",
-            request_text=request_preview,
-            request_shape=request_shape(payload.get("input")),
-        )
-        call.attach_trace_metadata(payload)
-        await filter_or_log(call, request_preview)
-        return await call.run(openai_v1_response.handle, payload)
+    async def create_response(body: Request, authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/responses")
 
     @router.post("/v1/messages")
     async def create_message(
-            body: AnthropicMessageRequest,
+            body: Request,
             authorization: str | None = Header(default=None),
             x_api_key: str | None = Header(default=None, alias="x-api-key"),
             anthropic_version: str | None = Header(default=None, alias="anthropic-version"),
     ):
-        identity = require_identity(authorization or (f"Bearer {x_api_key}" if x_api_key else None))
-        payload = body.model_dump(mode="python")
-        model = str(payload.get("model") or "auto")
-        request_preview = request_text(payload.get("system"), payload.get("messages"), payload.get("tools"))
-        call = LoggedCall(identity, "/v1/messages", model, "Messages", request_text=request_preview)
-        await filter_or_log(call, request_preview)
-        return await call.run(anthropic_v1_messages.handle, payload, sse="anthropic")
+        require_identity(authorization or (f"Bearer {x_api_key}" if x_api_key else None))
+        raise _removed_openai_feature("/v1/messages")
 
     @router.post("/v1/search")
-    async def search(body: SearchRequest, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        call = LoggedCall(identity, "/v1/search", openai_search.MODEL, "搜索", request_text=body.prompt)
-        await filter_or_log(call, body.prompt)
-        return await call.run(openai_search.handle, body.model_dump(mode="python"))
+    async def search(body: Request, authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/search")
 
     @router.get("/v1/editable-file-tasks")
     async def list_editable_file_tasks(ids: str = "", authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        task_ids = [item.strip() for item in ids.split(",") if item.strip()]
-        return await run_in_threadpool(editable_file_task_service.list_tasks, identity, task_ids)
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/editable-file-tasks")
 
     @router.post("/v1/editable-file-tasks")
-    async def create_editable_file_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        kind = (body.kind or "ppt").strip().lower()
-        if kind not in {"ppt", "psd"}:
-            raise HTTPException(status_code=400, detail={"error": "kind must be ppt or psd"})
-        endpoint = f"/v1/{kind}/generations"
-        await filter_or_log(
-            LoggedCall(identity, endpoint, "gpt-5-5-thinking", f"{kind.upper()} generation task", request_text=body.prompt),
-            body.prompt,
-        )
-        submit = editable_file_task_service.submit_psd if kind == "psd" else editable_file_task_service.submit_ppt
-        return await run_in_threadpool(
-            submit,
-            identity,
-            client_task_id=body.client_task_id or "",
-            prompt=body.prompt,
-            base64_images=body.base64_images,
-            base_url=resolve_image_base_url(request),
-        )
+    async def create_editable_file_task(body: Request, request: Request, authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/editable-file-tasks")
 
     @router.get("/files/{file_path:path}")
     async def download_editable_file(file_path: str):
-        try:
-            path = await run_in_threadpool(editable_file_task_service.public_file_path, file_path)
-        except Exception as exc:
-            raise HTTPException(status_code=404, detail={"error": "file not found"}) from exc
-        return FileResponse(path, filename=path.name)
+        raise _removed_openai_feature("/files/*")
 
     @router.post("/v1/ppt/generations")
-    async def create_ppt_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        await filter_or_log(LoggedCall(identity, "/v1/ppt/generations", "gpt-5-5-thinking", "PPT生成任务", request_text=body.prompt), body.prompt)
-        return await run_in_threadpool(
-            editable_file_task_service.submit_ppt,
-            identity,
-            client_task_id=body.client_task_id or "",
-            prompt=body.prompt,
-            base64_images=body.base64_images,
-            base_url=resolve_image_base_url(request),
-        )
+    async def create_ppt_task(body: Request, request: Request, authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/ppt/generations")
 
     @router.post("/v1/psd/generations")
-    async def create_psd_task(body: EditableFileTaskRequest, request: Request, authorization: str | None = Header(default=None)):
-        identity = require_identity(authorization)
-        await filter_or_log(LoggedCall(identity, "/v1/psd/generations", "gpt-5-5-thinking", "PSD生成任务", request_text=body.prompt), body.prompt)
-        return await run_in_threadpool(
-            editable_file_task_service.submit_psd,
-            identity,
-            client_task_id=body.client_task_id or "",
-            prompt=body.prompt,
-            base64_images=body.base64_images,
-            base_url=resolve_image_base_url(request),
-        )
+    async def create_psd_task(body: Request, request: Request, authorization: str | None = Header(default=None)):
+        require_identity(authorization)
+        raise _removed_openai_feature("/v1/psd/generations")
 
     return router

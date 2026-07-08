@@ -67,7 +67,7 @@ def create_app() -> FastAPI:
             log_cleanup_thread.join(timeout=1)
             backup_service.stop()
 
-    app = FastAPI(title="chatgpt2api", version=app_version, lifespan=lifespan)
+    app = FastAPI(title="oreate2api", version=app_version, lifespan=lifespan)
     install_exception_handlers(app)
     app.add_middleware(
         CORSMiddleware,

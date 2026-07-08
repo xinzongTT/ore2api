@@ -90,6 +90,8 @@ export type LegacyRegisterConfig = {
   target_quota: number
   target_available: number
   check_interval: number
+  invite_enabled?: boolean
+  invite_daily_limit?: number
   enabled: boolean
   stats?: {
     success?: number

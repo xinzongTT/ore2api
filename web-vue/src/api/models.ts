@@ -18,10 +18,12 @@ export interface ModelCatalogResponse {
   object?: 'model_catalog' | string
   chat_models: string[]
   image_models: string[]
+  video_models?: string[]
   all_models?: string[]
   source?: {
     chat?: string
     image?: string
+    video?: string
   }
   openai_models_endpoint?: string
 }

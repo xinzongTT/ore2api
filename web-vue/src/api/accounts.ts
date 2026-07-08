@@ -1,4 +1,5 @@
 ﻿import apiClient from './client'
+import { backendStatusToFrontend } from './accountStatus'
 import type { ProxyGroup } from './proxy'
 
 export type AccountLane = 'fast' | 'thinking' | 'pro'
@@ -222,7 +223,6 @@ export const ACCOUNT_BACKEND_STATUS_VALUES = ['正常', '限流', '异常', '禁
 const STATUS_NORMAL: AccountBackendStatus = '正常'
 const STATUS_DISABLED: AccountBackendStatus = '禁用'
 const STATUS_LIMITED: AccountBackendStatus = '限流'
-const STATUS_INVALID: AccountBackendStatus = '异常'
 
 const accountTokenById = new Map<string, string>()
 
@@ -273,65 +273,6 @@ function displayIdForAccount(item: BackendAccount, index: number, usedIds: Set<s
   }
   usedIds.add(candidate)
   return candidate
-}
-
-function backendStatusToFrontend(item: BackendAccount): Pick<
-  Account,
-  'enabled' | 'status' | 'status_reason' | 'status_reason_code' | 'last_error_kind'
-> {
-  const rawStatus = cleanString(item.status)
-  const quota = Number(item.quota ?? 0)
-  const imageQuotaUnknown = Boolean(item.image_quota_unknown)
-  const lastRefreshError = cleanString(item.last_refresh_error || item.last_token_refresh_error)
-
-  if (rawStatus === STATUS_DISABLED || rawStatus.toLowerCase() === 'disabled') {
-    return {
-      enabled: false,
-      status: 'disabled',
-      status_reason: '账号已禁用',
-      status_reason_code: 'disabled',
-      last_error_kind: '',
-    }
-  }
-
-  if (rawStatus === STATUS_INVALID || rawStatus.toLowerCase() === 'invalid') {
-    return {
-      enabled: true,
-      status: 'invalid',
-      status_reason: lastRefreshError || '账号鉴权异常',
-      status_reason_code: 'account_invalid',
-      last_error_kind: 'auth_invalid',
-    }
-  }
-
-  const invalidCount = Number(item.invalid_count ?? 0) || 0
-  if (invalidCount >= 1 && lastRefreshError && rawStatus !== STATUS_LIMITED) {
-    return {
-      enabled: true,
-      status: 'invalid',
-      status_reason: '已检测到鉴权异常，已进入统一异常处理流程。',
-      status_reason_code: 'account_invalid',
-      last_error_kind: 'auth_invalid',
-    }
-  }
-
-  if (rawStatus === STATUS_LIMITED) {
-    return {
-      enabled: true,
-      status: 'cooling',
-      status_reason: '远程确认图片额度已用完',
-      status_reason_code: 'image_quota_exhausted',
-      last_error_kind: 'quota_exhausted',
-    }
-  }
-
-  return {
-    enabled: true,
-    status: 'ready',
-    status_reason: lastRefreshError || (!imageQuotaUnknown && quota <= 0 ? '本地额度待远程刷新，以请求前预检结果为准' : ''),
-    status_reason_code: '',
-    last_error_kind: lastRefreshError ? 'upstream_error' : '',
-  }
 }
 
 function mapBackendAccount(item: BackendAccount, index: number, usedIds: Set<string>): Account {

@@ -1385,7 +1385,11 @@ class YydsMailProvider(BaseMailProvider):
         self.session.headers.update({"User-Agent": conf["user_agent"], "Accept": "application/json", "Content-Type": "application/json"})
 
     def _request(self, method: str, path: str, token: str = "", params: dict | None = None, payload: dict | None = None, expected: tuple[int, ...] = (200, 201, 204)):
-        headers = {"Authorization": f"Bearer {token}"} if token else {"X-API-Key": self.api_key}
+        # YYDSMail (maliapi.215.im) 统一用 Bearer 认证：
+        # - 管理操作（创建邮箱/读邮件）用 api_key
+        # - 临时收件箱也可用 mailbox 返回的 JWT token
+        auth = token or self.api_key
+        headers = {"Authorization": f"Bearer {auth}"}
         resp = self.session.request(method.upper(), f"{self.api_base}{path}", headers=headers, params=params, json=payload, timeout=self.conf["request_timeout"], verify=False)
         if resp.status_code not in expected:
             raise RuntimeError(f"YYDSMail 请求失败: {method} {path}, HTTP {resp.status_code}, body={resp.text[:300]}")
@@ -1401,16 +1405,18 @@ class YydsMailProvider(BaseMailProvider):
         return data if isinstance(data, list) else data.get("items") or data.get("messages") or data.get("data") or []
 
     def create_mailbox(self, username: str | None = None) -> dict[str, Any]:
+        # 文档确认端点: POST /v1/accounts (文档: https://vip.215.im/docs)
+        # /v1/mailboxes 是别名，两者均可用
         payload = {"localPart": username or _random_mailbox_name()}
         if self.domain:
             payload["domain"] = _next_domain(self.domain)
         if self.subdomain:
             payload["subdomain"] = self.subdomain
-        data = self._request("POST", "/accounts/wildcard" if self.wildcard else "/accounts", payload=payload)
+        data = self._request("POST", "/accounts", payload=payload)
         address = str(data.get("address") or data.get("email") or "").strip()
         token = str(data.get("token") or data.get("temp_token") or data.get("tempToken") or data.get("access_token") or "").strip()
-        if not address or not token:
-            raise RuntimeError("YYDSMail 缺少 address 或 token")
+        if not address:
+            raise RuntimeError("YYDSMail 缺少 address")
         return {"provider": self.name, "provider_ref": self.provider_ref, "address": address, "token": token, "account_id": str(data.get("id") or "")}
 
     def fetch_latest_message(self, mailbox: dict[str, Any]) -> dict[str, Any] | None:

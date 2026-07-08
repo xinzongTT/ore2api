@@ -923,10 +923,9 @@ function currentMenuLabel(label: string, active: boolean): string {
   return active ? `${label}（当前）` : label
 }
 
-const quickEndpointValues = ['/v1/images/edits', '/v1/images/generations'] as const
+const quickEndpointValues = ['/v1/images/generations'] as const
 const systemQuickFilterOptions: GroupedSelectOption[] = [
   { label: '只看失败', value: 'quick:status:failed' },
-  { label: '图生图', value: 'quick:endpoint:/v1/images/edits' },
   { label: '文生图', value: 'quick:endpoint:/v1/images/generations' },
 ]
 const systemQuickFilterGroups: GroupedSelectGroup[] = [
@@ -935,7 +934,6 @@ const systemQuickFilterGroups: GroupedSelectGroup[] = [
 const systemQuickFilterSelection = computed(() => {
   const values: string[] = []
   if (filters.status === 'failed') values.push('quick:status:failed')
-  if (filters.endpoint === '/v1/images/edits') values.push('quick:endpoint:/v1/images/edits')
   if (filters.endpoint === '/v1/images/generations') values.push('quick:endpoint:/v1/images/generations')
   return values
 })

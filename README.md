@@ -1,7 +1,7 @@
 <p align="center">
-  <img src="web-vue/public/logo.svg" width="120" alt="ChatGPT2API logo" />
+  <img src="web-vue/public/logo.svg" width="120" alt="oreate2api logo" />
 </p>
-<h1 align="center">ChatGPT2API</h1>
+<h1 align="center">oreate2api</h1>
 
 <p align="center">ChatGPT 官网能力 → OpenAI 兼容 API 网关</p>
 <p align="center">
@@ -12,7 +12,7 @@
   <img src="https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white" />
   <img src="https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white" />
 </p>
-<p align="center"><strong>当前稳定版本：v2.6.1</strong> | <a href="https://github.com/yukkcat/chatgpt2api/releases/tag/v2.6.1">发布说明</a> | <a href="https://github.com/yukkcat/chatgpt2api/releases">全部版本</a></p>
+<p align="center"><strong>当前稳定版本：v2.6.1</strong> | <a href="https://github.com/oreate2api/oreate2api/releases/tag/v2.6.1">发布说明</a> | <a href="https://github.com/oreate2api/oreate2api/releases">全部版本</a></p>
 
 ---
 
@@ -26,7 +26,7 @@
 
 ## 项目定位
 
-本仓库基于原版 [basketikun/chatgpt2api](https://github.com/basketikun/chatgpt2api) 整理维护，核心仍是把 ChatGPT 官网能力封装为 OpenAI 兼容 API。
+本仓库已整理为 oreate2api，核心是把 OreateAI 生图、生视频能力封装为 OpenAI 风格 API。
 
 本版本使用新的 Vue 控制台，主题和交互与原版前端不同；除前端实现差异外，接口、配置和部署口径会尽量保持与原版一致。
 
@@ -100,20 +100,20 @@ flowchart TB
 ### 一键安装
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yukkcat/chatgpt2api/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/oreate2api/oreate2api/main/deploy/install.sh | sudo bash
 ```
 
 固定安装当前稳定版：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/yukkcat/chatgpt2api/v2.6.1/deploy/install.sh | sudo bash -s -- --branch v2.6.1
+curl -fsSL https://raw.githubusercontent.com/oreate2api/oreate2api/v2.6.1/deploy/install.sh | sudo bash -s -- --branch v2.6.1
 ```
 
 ### Docker 运行
 
 ```bash
-git clone https://github.com/yukkcat/chatgpt2api.git
-cd chatgpt2api
+git clone https://github.com/oreate2api/oreate2api.git
+cd oreate2api
 cp .env.example .env
 printf '{ "auth-key": "your_secret_key_here" }\n' > config.json
 docker compose up -d
@@ -142,7 +142,7 @@ docker compose -f docker-compose.warp.yml up -d
 - `privoxy`：把 WARP SOCKS5 转成 HTTP 代理。
 - `flaresolverr`：刷新 Cloudflare clearance。
 - `init-config`：幂等写入 `proxy_runtime` 默认配置。
-- `app`：启动 ChatGPT2API 主服务。
+- `app`：启动 oreate2api 主服务。
 
 默认只让上游 OpenAI / ChatGPT 请求走稳定代理，账号邮箱、CPA 等辅助链路不会被强制接管。账号自身配置的代理优先级最高，其次是稳定代理运行时，再其次是显式代理和旧版全局代理。
 
@@ -153,8 +153,8 @@ docker compose -f docker-compose.warp.yml up -d
 启动后端：
 
 ```bash
-git clone https://github.com/yukkcat/chatgpt2api.git
-cd chatgpt2api
+git clone https://github.com/oreate2api/oreate2api.git
+cd oreate2api
 uv sync
 uv run main.py
 ```
@@ -162,7 +162,7 @@ uv run main.py
 启动前端：
 
 ```bash
-cd chatgpt2api/web-vue
+cd oreate2api/web-vue
 npm install
 npm run dev
 ```
@@ -197,23 +197,17 @@ environment:
 
 ### API 兼容能力
 
-> 兼容的是本项目已实现的 ChatGPT Web 逆向场景，不等同于官方 OpenAI 全量 API 代理。
+> 当前二开分支是 Oreate-only 构建，不等同于官方 OpenAI 全量 API 代理。
 
-- `GET /v1/models`：合并本地模型目录和上游实时模型，返回当前可暴露模型。
-- `POST /v1/chat/completions`：支持文本、搜索和图片场景，支持 `stream`、`tools`、`web_search_options`、`reasoning_effort` / `thinking_effort`。
-- `POST /v1/responses`：支持文本、搜索和图片工具调用，支持 `image_generation` 与 `web_search*` 工具。
-- `POST /v1/messages`：Anthropic Messages 兼容入口，走同一账号池和调用日志。
-- `POST /v1/search`：ChatGPT 搜索兼容入口，返回文本、引用来源和搜索结果信息。
-- `POST /v1/images/generations`：图片生成，支持 `n=1..4`。
-- `POST /v1/images/edits`：图片编辑，支持 multipart、远程 URL、base64、data URL 和多参考图。
-- `POST /v1/editable-file-tasks`、`GET /v1/editable-file-tasks`：统一 PPT / PSD 可编辑文件任务。
-- `POST /v1/ppt/generations`、`POST /v1/psd/generations`：PPT / PSD 生成快捷入口。
-- `GET /files/{path}`：下载 PPT / PSD / 可编辑文件任务产物。
+- `GET /v1/models`：返回当前可用的 OreateAI 图片/视频模型。
+- `POST /v1/images/generations`：图片生成，返回 OreateAI CDN URL，`response_format` 仅支持 `url`。
+- `POST /v1/video/generations`：视频生成，支持 `duration`、`aspect_ratio`、`resolution`、`audio`、`image`。
+- 已移除的旧 ChatGPT/OpenAI 兼容入口会返回 `410 Gone`，包括 chat、responses、messages、search、image edits、PPT/PSD 文件任务。
 
 ### 对话画图工作台
 
-- 侧边栏会话 + 底部输入框布局，支持普通文本对话、搜索模式、文生图、图生图和多图参考。
-- 支持 `gpt-image-2`、`codex-gpt-image-2`、`auto` 以及模型目录返回的文本/搜索模型。
+- 侧边栏会话 + 底部输入框布局，当前新请求只开放文生图路径。
+- 支持 `gpt-image-2` 以及 `/v1/models` 返回的 OreateAI 图片模型。
 - 支持推理强度：低 / 中 / 高 / 超高，透传为 `reasoning_effort`。
 - 支持 Markdown 渲染、代码块、搜索引用来源、官网式 `cite` / `image_group` 占位解析和图片建议展示。
 - 图片任务内联展示生成中、成功和失败状态；切换会话后仍保留任务状态提示。
@@ -297,17 +291,9 @@ Authorization: Bearer <auth-key>
 
 | 接口 | 方法 | 说明 |
 | :--- | :--- | :--- |
-| `/v1/models` | `GET` | 返回当前模型列表。 |
-| `/v1/chat/completions` | `POST` | Chat Completions 兼容入口，支持文本、搜索和图片场景。 |
-| `/v1/responses` | `POST` | Responses 兼容入口，支持文本、搜索和图片工具调用。 |
-| `/v1/messages` | `POST` | Messages 兼容入口。 |
-| `/v1/search` | `POST` | ChatGPT 搜索兼容入口。 |
-| `/v1/images/generations` | `POST` | OpenAI Images 文生图兼容入口。 |
-| `/v1/images/edits` | `POST` | OpenAI Images 图生图 / 编辑兼容入口。 |
-| `/v1/editable-file-tasks` | `GET/POST` | PPT / PSD / 可编辑文件任务创建与查询。 |
-| `/v1/ppt/generations` | `POST` | PPT 生成任务快捷入口。 |
-| `/v1/psd/generations` | `POST` | PSD 生成任务快捷入口。 |
-| `/files/{file_path}` | `GET/HEAD` | 文件任务产物下载。 |
+| `/v1/models` | `GET` | 返回 OreateAI 图片/视频模型列表。 |
+| `/v1/images/generations` | `POST` | 文生图，返回图片 URL。 |
+| `/v1/video/generations` | `POST` | 文生视频，返回视频 URL。 |
 
 <details>
 <summary><code>GET /v1/models</code></summary>
@@ -318,83 +304,7 @@ curl http://localhost:8000/v1/models \
   -H "Authorization: Bearer <auth-key>"
 ```
 
-返回本地模型目录与上游实时模型合并后的列表。实际可用模型以接口返回为准。
-
-</details>
-
-<details>
-<summary><code>POST /v1/chat/completions</code></summary>
-<br>
-
-文本 / 搜索示例：
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <auth-key>" \
-  -d '{
-    "model": "gpt-5",
-    "messages": [
-      {"role": "user", "content": "联网搜索并总结今天的 AI 新闻"}
-    ],
-    "tools": [{"type": "web_search_preview"}],
-    "reasoning_effort": "medium"
-  }'
-```
-
-聊天生图示例：
-
-```bash
-curl http://localhost:8000/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <auth-key>" \
-  -d '{
-    "model": "gpt-image-2",
-    "messages": [
-      {"role": "user", "content": "生成一张雨夜东京街头的赛博朋克猫"}
-    ],
-    "n": 1
-  }'
-```
-
-常用字段：`model`、`messages`、`stream`、`tools`、`web_search_options`、`reasoning_effort`、`thinking_effort`、`reasoning.effort`、`n`。
-
-</details>
-
-<details>
-<summary><code>POST /v1/responses</code></summary>
-<br>
-
-```bash
-curl http://localhost:8000/v1/responses \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <auth-key>" \
-  -d '{
-    "model": "gpt-5",
-    "input": "生成一张未来感城市天际线图片",
-    "tools": [{"type": "image_generation"}],
-    "reasoning_effort": "high"
-  }'
-```
-
-支持 `image_generation`、`web_search`、`web_search_preview`、`web_search_preview_2025_03_11`。
-
-</details>
-
-<details>
-<summary><code>POST /v1/search</code></summary>
-<br>
-
-```bash
-curl http://localhost:8000/v1/search \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <auth-key>" \
-  -d '{
-    "prompt": "布偶猫性格特点是什么？"
-  }'
-```
-
-返回搜索回答、引用来源和搜索结果结构；对话画图页会把官网式引用渲染为来源卡片。
+返回当前构建暴露的 OreateAI 图片/视频模型。实际可用模型以接口返回为准。
 
 </details>
 
@@ -402,7 +312,7 @@ curl http://localhost:8000/v1/search \
 <summary><code>POST /v1/images/generations</code></summary>
 <br>
 
-OpenAI 兼容图片生成接口，用于文生图。
+OreateAI 图片生成接口，用于文生图。
 
 ```bash
 curl http://localhost:8000/v1/images/generations \
@@ -412,7 +322,7 @@ curl http://localhost:8000/v1/images/generations \
     "model": "gpt-image-2",
     "prompt": "一只漂浮在太空里的猫",
     "n": 1,
-    "response_format": "b64_json"
+    "response_format": "url"
   }'
 ```
 
@@ -422,88 +332,31 @@ curl http://localhost:8000/v1/images/generations \
 | `prompt` | 图片生成提示词。 |
 | `n` | 生成数量，当前限制 `1-4`。 |
 | `size` | 可传官方尺寸字段，具体解析取决于上游能力。 |
-| `response_format` | 默认兼容 `b64_json`，也会保存本地图片 URL 供日志和图库使用。 |
+| `response_format` | 仅支持 `url`。 |
 
 </details>
 
 <details>
-<summary><code>POST /v1/images/edits</code></summary>
+<summary><code>POST /v1/video/generations</code></summary>
 <br>
 
-OpenAI 兼容图片编辑接口，可上传图片文件，也可传图片链接 / base64 / data URL。
+OreateAI 视频生成接口，用于文生视频。
 
 ```bash
-curl http://localhost:8000/v1/images/edits \
-  -H "Authorization: Bearer <auth-key>" \
-  -F "model=gpt-image-2" \
-  -F "prompt=把这张图改成赛博朋克夜景风格" \
-  -F "n=1" \
-  -F "image=@./input.png"
-```
-
-JSON 图片 URL 示例：
-
-```bash
-curl http://localhost:8000/v1/images/edits \
-  -H "Authorization: Bearer <auth-key>" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "gpt-image-2",
-    "prompt": "把这张图改成赛博朋克夜景风格",
-    "images": [
-      {"image_url": "https://example.com/input.png"}
-    ],
-    "n": 1
-  }'
-```
-
-支持字段：`model`、`prompt`、`n`、`image`、`images`、`image_url`、`mask`。
-
-</details>
-
-<details>
-<summary><code>POST /v1/messages</code></summary>
-<br>
-
-```bash
-curl http://localhost:8000/v1/messages \
+curl http://localhost:8000/v1/video/generations \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer <auth-key>" \
   -d '{
-    "model": "gpt-5",
-    "max_tokens": 1024,
-    "messages": [
-      {"role": "user", "content": "写一段产品介绍"}
-    ]
+    "model": "seedance-2.0-fast",
+    "prompt": "一只纸飞机穿过雨后的城市街道",
+    "duration": 5,
+    "aspect_ratio": "16:9",
+    "resolution": "480P",
+    "response_format": "url"
   }'
 ```
 
-</details>
-
-<details>
-<summary><code>POST /v1/editable-file-tasks</code></summary>
-<br>
-
-统一创建 PPT / PSD 等可编辑文件任务：
-
-```bash
-curl http://localhost:8000/v1/editable-file-tasks \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer <auth-key>" \
-  -d '{
-    "kind": "ppt",
-    "prompt": "做一份产品发布会 PPT"
-  }'
-```
-
-查询任务：
-
-```bash
-curl "http://localhost:8000/v1/editable-file-tasks?task_id=<task_id>" \
-  -H "Authorization: Bearer <auth-key>"
-```
-
-也可使用快捷入口：`POST /v1/ppt/generations`、`POST /v1/psd/generations`。
+支持字段：`model`、`prompt`、`duration`、`aspect_ratio`、`resolution`、`audio`、`image`、`response_format`。`response_format` 仅支持 `url`。
 
 </details>
 
@@ -513,10 +366,10 @@ curl "http://localhost:8000/v1/editable-file-tasks?task_id=<task_id>" \
 
 ## 原版项目贡献者
 
-<a href="https://github.com/basketikun/chatgpt2api/graphs/contributors">
-  <img alt="Contributors" src="https://contrib.rocks/image?repo=basketikun/chatgpt2api" />
+<a href="https://github.com/oreate2api/oreate2api/graphs/contributors">
+  <img alt="Contributors" src="https://contrib.rocks/image?repo=oreate2api/oreate2api" />
 </a>
 
 ## Star History
 
-[![Star History Chart](https://api.star-history.com/chart?repos=yukkcat/chatgpt2api&type=date&legend=top-left)](https://www.star-history.com/?repos=yukkcat%2Fchatgpt2api&type=date&legend=top-left)
+[![Star History Chart](https://api.star-history.com/chart?repos=oreate2api/oreate2api&type=date&legend=top-left)](https://www.star-history.com/?repos=oreate2api%2Foreate2api&type=date&legend=top-left)

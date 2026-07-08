@@ -13,7 +13,7 @@ def _model_item(model: str) -> dict[str, Any]:
         "id": model,
         "object": "model",
         "created": 0,
-        "owned_by": "chatgpt2api",
+        "owned_by": "oreate2api",
         "permission": [],
         "root": model,
         "parent": None,
@@ -87,6 +87,7 @@ def list_models() -> dict[str, Any]:
     _append_models(data, seen, catalog.get("chat_models"))
     _append_upstream_models(data, seen)
     _append_models(data, seen, catalog.get("image_models"))
+    _append_models(data, seen, catalog.get("video_models"))
     _append_models(data, seen, _dynamic_image_models())
 
     return {"object": "list", "data": data}

@@ -4,8 +4,10 @@ import type { ModelCatalogResponse, ModelListResponse } from '@/api/models'
 import type { Settings } from '@/types/api'
 import {
   isImageModelId,
+  isVideoModelId,
   resolveChatModels,
   resolveImageModels,
+  resolveVideoModels,
 } from '@/config/modelCatalog'
 
 type SettingsResolver = () => Settings | null | undefined
@@ -32,13 +34,15 @@ function normalizeCatalog(payload: ModelCatalogResponse | null | undefined): Mod
   if (!payload) return null
   const chatModels = normalizeList(payload.chat_models)
   const imageModels = normalizeList(payload.image_models)
+  const videoModels = normalizeList(payload.video_models)
   return {
     ...payload,
     chat_models: chatModels,
     image_models: imageModels,
+    video_models: videoModels,
     all_models: normalizeList(payload.all_models).length
       ? normalizeList(payload.all_models)
-      : normalizeList([...chatModels, ...imageModels]),
+      : normalizeList([...chatModels, ...imageModels, ...videoModels]),
   }
 }
 
@@ -47,12 +51,14 @@ function catalogFromOpenAIModels(response: ModelListResponse): ModelCatalogRespo
   if (ids.length === 0) return null
   return {
     object: 'model_catalog',
-    chat_models: ids.filter(model => !isImageModelId(model)),
+    chat_models: ids.filter(model => !isImageModelId(model) && !isVideoModelId(model)),
     image_models: ids.filter(model => isImageModelId(model)),
+    video_models: ids.filter(model => isVideoModelId(model)),
     all_models: ids,
     source: {
       chat: 'openai_models_endpoint',
       image: 'openai_models_endpoint',
+      video: 'openai_models_endpoint',
     },
     openai_models_endpoint: '/v1/models',
   }
@@ -67,6 +73,11 @@ export function useModelCatalog(resolveSettings: SettingsResolver) {
   const imageModels = computed(() => {
     const fromCatalog = normalizeList(sharedCatalog.value?.image_models)
     return fromCatalog.length > 0 ? fromCatalog : resolveImageModels(resolveSettings())
+  })
+
+  const videoModels = computed(() => {
+    const fromCatalog = normalizeList(sharedCatalog.value?.video_models)
+    return fromCatalog.length > 0 ? fromCatalog : resolveVideoModels()
   })
 
   async function loadModelCatalog(force = false) {
@@ -106,6 +117,7 @@ export function useModelCatalog(resolveSettings: SettingsResolver) {
     catalog: sharedCatalog,
     chatModels,
     imageModels,
+    videoModels,
     isLoading,
     loadError,
     loadModelCatalog,

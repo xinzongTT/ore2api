@@ -35,7 +35,7 @@
           :class="{ 'chat-input-panel-inner-attach': references.length }"
           @click="textareaRef?.focus()"
         >
-          <div v-if="mode === 'image' && references.length" class="attach-images">
+          <div v-if="(mode === 'image' || mode === 'video') && references.length" class="attach-images">
             <div v-for="(source, index) in references" :key="source.id" class="chat-attachment-preview">
               <button type="button" class="studio-reference-preview" :title="source.name" @click.stop="$emit('preview-reference', source)">
                 <img v-if="source.dataUrl" :src="source.dataUrl" :alt="source.name" />
@@ -202,6 +202,99 @@
                 <span class="text">清空参考</span>
               </button>
             </template>
+
+            <template v-else-if="mode === 'video'">
+              <button
+                type="button"
+                class="chat-input-action"
+                :class="{ 'chat-input-action-active': references.length }"
+                :disabled="isSending"
+                @click="fileInputRef?.click()"
+              >
+                <span class="icon"><Icon icon="lucide:paperclip" class="h-3.5 w-3.5" /></span>
+                <span class="text">{{ references.length ? '继续添加' : '参考图' }}</span>
+              </button>
+              <div class="chat-settings-anchor">
+                <button
+                  ref="settingsButtonRef"
+                  type="button"
+                  class="chat-input-action"
+                  :class="{ 'chat-input-action-active': settingsOpen }"
+                  @click.stop="toggleSettings"
+                >
+                  <span class="icon"><Icon icon="lucide:sliders-horizontal" class="h-3.5 w-3.5" /></span>
+                  <span class="text">{{ videoSummaryLabel }}</span>
+                  <Icon icon="lucide:chevron-down" class="h-3.5 w-3.5" />
+                </button>
+
+                <div v-if="settingsOpen" class="studio-size-popover" @click.stop>
+                  <div class="studio-size-section">
+                    <div class="studio-size-label">模型</div>
+                    <GroupedSelectMenu
+                      v-model="videoModelValue"
+                      :options="videoModelSelectOptions"
+                      selected-indicator="none"
+                      block
+                    />
+                  </div>
+                  <div class="studio-size-section">
+                    <div class="studio-size-label">时长</div>
+                    <div class="studio-choice-grid is-count">
+                      <button
+                        v-for="option in VIDEO_DURATION_OPTIONS"
+                        :key="option.value"
+                        type="button"
+                        class="studio-choice-button"
+                        :class="{ 'is-active': videoForm.duration === option.value }"
+                        @click="$emit('update:videoDuration', option.value)"
+                      >
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="studio-size-section">
+                    <div class="studio-size-label">比例</div>
+                    <div class="studio-choice-grid is-ratio">
+                      <button
+                        v-for="option in VIDEO_RATIO_OPTIONS"
+                        :key="option.value"
+                        type="button"
+                        class="studio-choice-button"
+                        :class="{ 'is-active': videoForm.aspectRatio === option.value }"
+                        @click="$emit('update:videoRatio', option.value)"
+                      >
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+                  <div class="studio-size-section">
+                    <div class="studio-size-label">分辨率</div>
+                    <div class="studio-choice-grid is-resolution">
+                      <button
+                        v-for="option in VIDEO_RESOLUTION_OPTIONS"
+                        :key="option.value"
+                        type="button"
+                        class="studio-choice-button"
+                        :class="{ 'is-active': videoForm.resolution === option.value }"
+                        @click="$emit('update:videoResolution', option.value)"
+                      >
+                        {{ option.label }}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <button
+                v-if="references.length"
+                type="button"
+                class="chat-input-action"
+                :disabled="isSending"
+                @click="$emit('clear-references')"
+              >
+                <span class="icon"><Icon icon="lucide:x" class="h-3.5 w-3.5" /></span>
+                <span class="text">清空参考</span>
+              </button>
+            </template>
           </div>
 
           <div class="chat-input-submit-row">
@@ -257,7 +350,12 @@ import {
   resolveImageSizePresets,
   type ImageSizeResolution,
 } from '@/api/imageTasks'
-import type { StudioComposeMode, StudioImageForm, StudioReference } from './types'
+import {
+  VIDEO_DURATION_OPTIONS,
+  VIDEO_RATIO_OPTIONS,
+  VIDEO_RESOLUTION_OPTIONS,
+} from '@/api/videoGenerations'
+import type { StudioComposeMode, StudioImageForm, StudioReference, StudioVideoForm } from './types'
 
 const props = defineProps<{
   mode: StudioComposeMode
@@ -265,8 +363,10 @@ const props = defineProps<{
   chatModel: string
   chatReasoningEffort: string
   imageForm: StudioImageForm
+  videoForm: StudioVideoForm
   chatModelOptions: string[]
   imageModelOptions: string[]
+  videoModelOptions: string[]
   references: StudioReference[]
   isSending: boolean
   isStreaming: boolean
@@ -283,6 +383,10 @@ const emit = defineEmits<{
   'update:imageSize': [size: string]
   'update:imageQuality': [quality: string]
   'update:imageCount': [count: number]
+  'update:videoModel': [model: string]
+  'update:videoDuration': [duration: number]
+  'update:videoRatio': [ratio: string]
+  'update:videoResolution': [resolution: string]
   submit: []
   stop: []
   'cancel-edit': []
@@ -302,9 +406,8 @@ let textareaResizeFrame = 0
 let composerResizeObserver: ResizeObserver | null = null
 
 const modeOptions: Array<{ label: string; value: StudioComposeMode }> = [
+  { label: '视频', value: 'video' },
   { label: '画图', value: 'image' },
-  { label: '对话', value: 'chat' },
-  { label: '搜索', value: 'search' },
 ]
 
 const textValue = computed({
@@ -331,11 +434,13 @@ const chatReasoningEffortValue = computed({
 })
 
 function normalizeModeValue(value: string | number): StudioComposeMode {
-  if (value === 'chat' || value === 'search' || value === 'image') return value
+  if (value === 'video') return value
+  if (value === 'image') return value
   return 'image'
 }
 
 function modeIcon(mode: StudioComposeMode) {
+  if (mode === 'video') return 'lucide:video'
   if (mode === 'image') return 'lucide:image'
   if (mode === 'search') return 'lucide:search'
   return 'lucide:message-circle'
@@ -344,6 +449,11 @@ function modeIcon(mode: StudioComposeMode) {
 const imageModelValue = computed({
   get: () => props.imageForm.model,
   set: (value: string | string[]) => emit('update:imageModel', String(Array.isArray(value) ? value[0] : value || '')),
+})
+
+const videoModelValue = computed({
+  get: () => props.videoForm.model,
+  set: (value: string | string[]) => emit('update:videoModel', String(Array.isArray(value) ? value[0] : value || '')),
 })
 
 const chatModelSelectOptions = computed(() => props.chatModelOptions.map((model) => ({
@@ -360,6 +470,11 @@ const chatReasoningEffortOptions = [
 ]
 
 const imageModelSelectOptions = computed(() => props.imageModelOptions.map((model) => ({
+  label: model,
+  value: model,
+})))
+
+const videoModelSelectOptions = computed(() => props.videoModelOptions.map((model) => ({
   label: model,
   value: model,
 })))
@@ -389,8 +504,10 @@ const imageSummaryLabel = computed(() => {
   return `${formatImageSizeLabel(props.imageForm.size)}${count}`
 })
 const imagePlaceholder = computed(() => props.references.length ? '描述你想如何修改参考图' : '输入你想生成的画面，也可以粘贴或拖入参考图')
+const videoSummaryLabel = computed(() => `${props.videoForm.aspectRatio} · ${props.videoForm.resolution} · ${props.videoForm.duration}s`)
 const placeholderText = computed(() => {
   if (props.mode === 'image') return imagePlaceholder.value
+  if (props.mode === 'video') return '输入你想生成的视频画面'
   if (props.mode === 'search') return '输入搜索问题，Enter 搜索，Shift+Enter 换行'
   return '输入消息，Enter 发送，Shift+Enter 换行'
 })
@@ -458,7 +575,7 @@ function handleFileChange(event: Event) {
 }
 
 function handlePaste(event: ClipboardEvent) {
-  if (props.mode !== 'image') return
+  if (props.mode !== 'image' && props.mode !== 'video') return
   const files = Array.from(event.clipboardData?.files || []).filter(isImageFile)
   if (!files.length) return
   event.preventDefault()
@@ -467,7 +584,7 @@ function handlePaste(event: ClipboardEvent) {
 
 function handleDrop(event: DragEvent) {
   isDragging.value = false
-  if (props.mode !== 'image') return
+  if (props.mode !== 'image' && props.mode !== 'video') return
   emit('add-files', Array.from(event.dataTransfer?.files || []))
 }
 

@@ -283,7 +283,7 @@ export function normalizeSettings(raw: RawSettings | null | undefined): Settings
       webdav_url: cleanString(imageStorage.webdav_url),
       webdav_username: cleanString(imageStorage.webdav_username),
       webdav_password: cleanString(imageStorage.webdav_password),
-      webdav_root_path: cleanString(imageStorage.webdav_root_path) || 'chatgpt2api/images',
+      webdav_root_path: cleanString(imageStorage.webdav_root_path) || 'oreate2api/images',
       public_base_url: cleanString(imageStorage.public_base_url),
     },
     backup: {

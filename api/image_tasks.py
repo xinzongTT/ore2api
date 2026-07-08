@@ -19,6 +19,9 @@ class ImageGenerationTaskRequest(BaseModel):
     n: int = Field(default=1, ge=1, le=4)
     size: str | None = None
     quality: str = "auto"
+    aspect_ratio: str = "1:1"
+    resolution: str = "1K"
+    images: list[str] = Field(default_factory=list)
 
 
 class ResumePollRequest(BaseModel):
@@ -94,6 +97,9 @@ def create_router() -> APIRouter:
                 n=body.n,
                 size=body.size,
                 quality=body.quality,
+                aspect_ratio=body.aspect_ratio,
+                resolution=body.resolution,
+                images=body.images,
                 base_url=resolve_image_base_url(request),
             )
         except ValueError as exc:
@@ -106,27 +112,22 @@ def create_router() -> APIRouter:
     ):
         identity = require_identity(authorization)
         payload, image_sources, mask_sources = await parse_image_edit_request(request)
-        client_task_id = str(payload.get("client_task_id") or "").strip()
-        if not client_task_id:
-            raise HTTPException(status_code=400, detail={"error": "client_task_id is required"})
-        prompt = str(payload["prompt"])
-        model = str(payload["model"])
-        await filter_or_log(LoggedCall(identity, "/api/image-tasks/edits", model, "图生图任务", request_text=prompt), prompt)
         images = await read_image_sources(image_sources)
-        masks = await read_image_sources(mask_sources) if mask_sources else None
+        masks = await read_image_sources(mask_sources) if mask_sources else []
+        await filter_or_log(LoggedCall(identity, "/api/image-tasks/edits", payload.get("model", "gpt-image-2"), "图生图任务", request_text=payload.get("prompt", "")), payload.get("prompt", ""))
         try:
             return await run_in_threadpool(
                 image_task_service.submit_edit,
                 identity,
-                client_task_id=client_task_id,
-                prompt=prompt,
-                model=model,
+                client_task_id=payload.get("client_task_id", ""),
+                prompt=payload.get("prompt", ""),
+                model=payload.get("model", "gpt-image-2"),
                 n=payload.get("n", 1),
-                size=payload["size"],
-                quality=payload["quality"],
-                base_url=resolve_image_base_url(request),
+                size=payload.get("size"),
+                quality=payload.get("quality", "auto"),
                 images=images,
                 masks=masks,
+                base_url=resolve_image_base_url(request),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc

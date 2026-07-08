@@ -80,7 +80,7 @@
                     </div>
                   </template>
 
-                  <template v-else-if="message.mode !== 'image'">
+                  <template v-else-if="message.mode !== 'image' && message.mode !== 'video'">
                     <StudioMarkdownContent
                       v-if="message.content || message.status === 'streaming'"
                       :content="message.content || ' '"
@@ -119,7 +119,7 @@
                   </template>
 
                   <template v-else>
-                    <template v-if="!message.task || message.task.status === 'queued' || message.task.status === 'running'">
+                    <template v-if="message.isPendingImageMessage">
                       <div class="studio-result-block studio-result-block-pending">
                         <div class="studio-result-grid" :class="{ 'is-single': message.imageSlotCount <= 1 }">
                           <div
@@ -129,7 +129,7 @@
                           >
                             <div class="studio-result-media studio-result-placeholder">
                               <Icon icon="lucide:loader-circle" class="h-5 w-5 animate-spin" />
-                              <span>正在处理图片</span>
+                              <span>{{ message.isVideoMessage ? '正在处理视频' : '正在处理图片' }}</span>
                               <small>{{ message.imagePendingStageText }}</small>
                             </div>
                             <div v-if="message.imageSlotCount > 1" class="studio-result-caption">
@@ -141,9 +141,9 @@
                     </template>
 
                     <template v-else>
-                      <div v-if="message.task?.status === 'error'" class="studio-image-status is-error">
+                      <div v-if="message.status === 'error' || message.task?.status === 'error'" class="studio-image-status is-error">
                         <Icon icon="lucide:circle-alert" class="h-4 w-4" />
-                        <span>{{ message.primaryMessage || '上游没有返回可用图片。' }}</span>
+                        <span>{{ message.primaryMessage || (message.isVideoMessage ? '上游没有返回可用视频。' : '上游没有返回可用图片。') }}</span>
                       </div>
 
                       <div v-else class="studio-result-block">
@@ -153,7 +153,15 @@
                             :key="`${message.id}-${assetIndex}`"
                             class="studio-result-item"
                           >
+                            <div
+                              v-if="message.isVideoMessage"
+                              class="studio-result-media has-image is-video"
+                            >
+                              <video v-if="assetUrl(asset)" :src="assetUrl(asset)" controls preload="metadata"></video>
+                              <span v-else>无视频 URL</span>
+                            </div>
                             <button
+                              v-else
                               type="button"
                               class="studio-result-media"
                               :class="{ 'has-image': Boolean(assetUrl(asset)) }"
@@ -304,6 +312,7 @@ type StudioMessageView = StudioMessage & {
   task?: ImageTask
   assets: ImageTaskAsset[]
   isImageMessage: boolean
+  isVideoMessage: boolean
   isPendingImageMessage: boolean
   imageSlotCount: number
   pendingSlots: number[]
@@ -357,8 +366,13 @@ const activeSearchSourceMessage = computed(() => {
 
 function buildMessageView(message: StudioMessage): StudioMessageView {
   const task = message.taskId ? taskById.value.get(message.taskId) : undefined
-  const assets = task?.data?.length ? task.data.filter((asset) => Boolean(assetUrl(asset))) : []
-  const isImageMessage = message.role === 'assistant' && message.mode === 'image'
+  const assets = message.videoAssets?.length
+    ? message.videoAssets.filter((asset) => Boolean(assetUrl(asset)))
+    : task?.data?.length
+      ? task.data.filter((asset) => Boolean(assetUrl(asset)))
+      : []
+  const isVideoMessage = message.role === 'assistant' && message.mode === 'video'
+  const isImageMessage = message.role === 'assistant' && (message.mode === 'image' || message.mode === 'video')
   const imageSlotCount = computeImageSlotCount(message, task, assets.length)
   const isCollapsible = computeIsCollapsibleMessage(message)
   const isCollapsed = isCollapsible ? computeIsMessageCollapsed(message) : false
@@ -376,7 +390,8 @@ function buildMessageView(message: StudioMessage): StudioMessageView {
     task,
     assets,
     isImageMessage,
-    isPendingImageMessage: isImageMessage && (!task || (task.status !== 'success' && task.status !== 'error' && assets.length === 0)),
+    isVideoMessage,
+    isPendingImageMessage: isImageMessage && assets.length === 0 && message.status !== 'done' && message.status !== 'error' && (!task || (task.status !== 'success' && task.status !== 'error')),
     imageSlotCount,
     pendingSlots: Array.from({ length: imageSlotCount }, (_, index) => index),
     imagePendingStageText: imageTaskProgressLabel(task),
@@ -409,6 +424,9 @@ function messageViewSignature(
     message.imageSize,
     message.imageCount,
     message.taskId,
+    message.videoRatio,
+    message.videoDuration,
+    message.videoResolution,
     compactStringSignature(message.error, `${message.id}:error`),
     arraySignature(message.attachments),
     searchSourcesSignature(message.searchSources, message.id),
@@ -435,6 +453,7 @@ function messageViewSignature(
     compactStringSignature(task?.upstream_error, `${task?.id || message.taskId}:upstream`),
     compactStringSignature(task?.raw_error, `${task?.id || message.taskId}:raw`),
     assets.length,
+    ...(message.videoAssets || []).map((asset, index) => assetSignature(asset, `${message.id}:video`, index)),
     ...assets.map((asset, index) => assetSignature(asset, task?.id || message.taskId || message.id, index)),
   ]
 }
@@ -557,11 +576,17 @@ function computeImageSlotCount(message: StudioMessage, task: ImageTask | undefin
 
 function buildImagePreviewStyle(message: StudioMessage, task: ImageTask | undefined, imageSlotCount: number): CSSProperties {
   const parsed = parseImageSize(task?.size || message.imageSize || '')
-  const aspectRatio = parsed ? `${parsed.width} / ${parsed.height}` : '1 / 1'
+  const aspectRatio = parsed ? `${parsed.width} / ${parsed.height}` : ratioToCssAspect(message.videoRatio) || '1 / 1'
   return {
     '--studio-image-aspect-ratio': aspectRatio,
     '--studio-image-grid-columns': String(Math.min(2, imageSlotCount)),
   } as CSSProperties
+}
+
+function ratioToCssAspect(value: unknown) {
+  const match = String(value || '').trim().match(/^(\d+)\s*:\s*(\d+)$/)
+  if (!match) return ''
+  return `${Number(match[1]) || 1} / ${Number(match[2]) || 1}`
 }
 
 function sourceTitle(source: StudioSearchSource, index: number) {
@@ -1701,6 +1726,10 @@ defineExpose({
   padding: 0;
 }
 
+.studio-result-media.is-video {
+  cursor: default;
+}
+
 .studio-result-media img {
   display: block;
   width: 100%;
@@ -1708,6 +1737,15 @@ defineExpose({
   max-width: none;
   max-height: none;
   border-radius: 0.75rem;
+  object-fit: contain;
+}
+
+.studio-result-media video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 0.75rem;
+  background: black;
   object-fit: contain;
 }
 

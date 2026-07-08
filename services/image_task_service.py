@@ -181,6 +181,9 @@ class ImageTaskService:
         n: int = 1,
         size: str | None = None,
         quality: str = "auto",
+        aspect_ratio: str = "1:1",
+        resolution: str = "1K",
+        images: list[Any] | None = None,
         base_url: str = "",
     ) -> dict[str, Any]:
         payload = {
@@ -189,6 +192,9 @@ class ImageTaskService:
             "n": _image_count(n),
             "size": size,
             "quality": quality,
+            "aspect_ratio": aspect_ratio,
+            "resolution": resolution,
+            "images": images or [],
             "response_format": "url",
             "base_url": base_url,
         }

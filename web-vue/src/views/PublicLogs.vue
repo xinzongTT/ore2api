@@ -4,7 +4,7 @@
       <PagePanel>
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div class="flex items-center gap-3">
-            <img :src="logoUrl" alt="ChatGPT2API" class="h-8 w-8 object-contain" />
+            <img :src="logoUrl" alt="oreate2api" class="h-8 w-8 object-contain" />
             <div>
               <p class="ui-section-title">公开日志</p>
             </div>

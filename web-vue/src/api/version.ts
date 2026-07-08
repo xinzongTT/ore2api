@@ -20,10 +20,10 @@ export const versionApi = {
     const current = await this.current()
     return {
       ...current,
-      repository: 'yukkcat/chatgpt2api',
+      repository: 'oreate2api/oreate2api',
       latest_tag: current.tag,
       latest_version: current.version,
-      release_url: 'https://github.com/yukkcat/chatgpt2api/releases',
+      release_url: 'https://github.com/oreate2api/oreate2api/releases',
       is_latest: true,
       update_available: false,
     }

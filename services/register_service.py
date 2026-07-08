@@ -11,7 +11,7 @@ from pathlib import Path
 from services.account_service import account_service
 from services.config import DATA_DIR
 from services.json_file import read_json_object, write_json_file
-from services.register import mail_provider, openai_register
+from services.register import mail_provider, oreate_register
 
 
 REGISTER_FILE = DATA_DIR / "register.json"
@@ -73,7 +73,7 @@ def _ensure_provider_id(provider: dict) -> str:
 
 
 def _default_config() -> dict:
-    return {**openai_register.config, "mode": "total", "target_quota": 100, "target_available": 10, "check_interval": 5, "enabled": False, "stats": {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": openai_register.config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, "current_quota": 0, "current_available": 0}}
+    return {**oreate_register.config, "mode": "total", "target_quota": 100, "target_available": 10, "check_interval": 5, "enabled": False, "stats": {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": oreate_register.config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, "current_quota": 0, "current_available": 0}}
 
 
 def _normalize(raw: dict) -> dict:
@@ -86,6 +86,8 @@ def _normalize(raw: dict) -> dict:
     cfg["target_available"] = max(1, int(cfg.get("target_available") or 1))
     cfg["check_interval"] = max(1, int(cfg.get("check_interval") or 5))
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
+    cfg["invite_enabled"] = _safe_bool(cfg.get("invite_enabled"), False)
+    cfg["invite_daily_limit"] = max(1, int(cfg.get("invite_daily_limit") or 1))
     default_mail = _default_config()["mail"] if isinstance(_default_config().get("mail"), dict) else {}
     mail = cfg.get("mail") if isinstance(cfg.get("mail"), dict) else {}
     cfg["mail"] = {**default_mail, **mail}
@@ -104,7 +106,7 @@ class RegisterService:
         self._lock = threading.RLock()
         self._runner: threading.Thread | None = None
         self._logs: list[dict] = []
-        openai_register.register_log_sink = self._append_log
+        oreate_register.register_log_sink = self._append_log
         self._config = self._load()
         if self._config["enabled"]:
             self.start()
@@ -249,7 +251,7 @@ class RegisterService:
             self._merge_outlook_pools(updates)
             self._config = _normalize({**self._config, **updates})
             self._drop_mail_proxy()
-            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+            oreate_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads", "invite_enabled", "invite_daily_limit")})
             self._save()
             return self.get()
 
@@ -264,11 +266,11 @@ class RegisterService:
             self._logs = []
             metrics = self._pool_metrics()
             self._config["stats"] = {"job_id": uuid.uuid4().hex, "success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], **metrics, "started_at": _now(), "updated_at": _now()}
-            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
-            with openai_register.stats_lock:
-                openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": time.time()})
+            oreate_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads", "invite_enabled", "invite_daily_limit")})
+            with oreate_register.stats_lock:
+                oreate_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": time.time()})
             self._save()
-            self._runner = threading.Thread(target=self._run, daemon=True, name="openai-register")
+            self._runner = threading.Thread(target=self._run, daemon=True, name="oreate-register")
             self._runner.start()
             self._append_log(f"注册任务启动，模式={self._config['mode']}，线程数={self._config['threads']}", "yellow")
             return self.get()
@@ -285,8 +287,8 @@ class RegisterService:
         with self._lock:
             self._logs = []
             self._config["stats"] = {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, **self._pool_metrics(), "updated_at": _now()}
-            with openai_register.stats_lock:
-                openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": 0.0})
+            with oreate_register.stats_lock:
+                oreate_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": 0.0})
             self._save()
             return self.get()
 
@@ -295,7 +297,7 @@ class RegisterService:
         if scope == "unused":
             with self._lock:
                 removed = self._prune_unused_outlook_pools()
-                openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+                oreate_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads", "invite_enabled", "invite_daily_limit")})
                 self._save()
                 self._append_log(f"已清空 Outlook 邮箱池未使用邮箱，移除 {removed} 个", "yellow")
             return self.get()
@@ -382,7 +384,7 @@ class RegisterService:
                 cfg = self.get()
                 while self.get()["enabled"] and not self._target_reached(cfg, submitted) and len(futures) < threads:
                     submitted += 1
-                    futures.add(executor.submit(openai_register.worker, submitted))
+                    futures.add(executor.submit(oreate_register.worker, submitted))
                 self._bump(running=len(futures), done=done, success=success, fail=fail)
                 if not futures and (not self.get()["enabled"] or str(cfg.get("mode") or "total") == "total"):
                     break

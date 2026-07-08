@@ -1,4 +1,4 @@
-# ChatGPT2API 配置示例
+# oreate2api 配置示例
 #
 # 说明：
 # - 仓库只保存这个示例文件，运行时仍然使用 config.json。
@@ -6,7 +6,7 @@
 #   或自行创建 config.json。
 # - 敏感信息（auth-key、代理、R2、WebDAV、Git Token 等）不要提交到仓库。
 
-auth-key: chatgpt2api
+auth-key: oreate123
 refresh_account_interval_minute: 5
 image_retention_days: 15
 log_retention_days: 30
@@ -35,6 +35,10 @@ log_levels:
 
 proxy: ""
 fallback_proxy: ""
+# OreateAI 生图/生视频/邀请查询专用出口代理（与注册分离）。
+# 留空 = 走服务器固定 IP（推荐：账号长期同 IP 使用更像真人）。
+# 注册用的动态代理配在 data/register.json 的 proxy 字段，不在这里。
+oreate-proxy: ""
 base_url: ""
 sensitive_words: []
 global_system_prompt: ""
@@ -65,7 +69,7 @@ image_storage:
   webdav_url: ""
   webdav_username: ""
   webdav_password: ""
-  webdav_root_path: chatgpt2api/images
+  webdav_root_path: oreate2api/images
   public_base_url: ""
 
 chat_completion_cache:

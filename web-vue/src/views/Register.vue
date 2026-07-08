@@ -93,6 +93,23 @@
                 />
               </label>
 
+              <label class="register-checkbox-field">
+                <Checkbox v-model="registerConfig.invite_enabled" :disabled="registerConfig.enabled">
+                  邀请裂变（新号自动用号池账号的邀请码注册，双方各 +100 积分）
+                </Checkbox>
+              </label>
+
+              <label v-if="registerConfig.invite_enabled" class="register-field">
+                <span class="register-label">每号每日邀请上限</span>
+                <Input
+                  v-model.number="registerConfig.invite_daily_limit"
+                  type="number"
+                  min="1"
+                  block
+                  :disabled="registerConfig.enabled"
+                />
+              </label>
+
               <label class="register-field">
                 <span class="register-label">注册代理</span>
                 <GroupedSelectMenu
@@ -752,6 +769,8 @@ const defaultRegisterConfig: LegacyRegisterConfig = {
   target_quota: 100,
   target_available: 10,
   check_interval: 5,
+  invite_enabled: false,
+  invite_daily_limit: 1,
   enabled: false,
   stats: {
     success: 0,
@@ -1644,6 +1663,8 @@ function legacyPayload(): Partial<LegacyRegisterConfig> {
     target_quota: Math.max(1, Number(registerConfig.value.target_quota) || 1),
     target_available: Math.max(1, Number(registerConfig.value.target_available) || 1),
     check_interval: Math.max(1, Number(registerConfig.value.check_interval) || 5),
+    invite_enabled: Boolean(registerConfig.value.invite_enabled),
+    invite_daily_limit: Math.max(1, Number(registerConfig.value.invite_daily_limit) || 1),
   }
 }
 

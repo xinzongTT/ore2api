@@ -1,5 +1,3 @@
-import apiClient from './client'
-
 export type DebugSearchSource = {
   title?: string
   url?: string
@@ -68,29 +66,20 @@ function endpointForEditableKind(kind: DebugEditableKind) {
   return kind === 'psd' ? '/v1/psd/generations' : '/v1/ppt/generations'
 }
 
-export const debugApi = {
-  search: async (prompt: string) => apiClient.post<{ prompt: string }, DebugSearchResult>('/v1/search', { prompt }),
+function removedEndpoint<T>(path: string): Promise<T> {
+  return Promise.reject(new Error(`${path} has been removed in this oreate-only build`))
+}
 
-  chat: async (model: string, messages: DebugChatMessage[], reasoningEffort = '') => apiClient.post<Record<string, unknown>, DebugChatCompletion>(
-    '/v1/chat/completions',
-    {
-      model: model.trim() || 'auto',
-      messages,
-      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-    },
+export const debugApi = {
+  search: async (_prompt: string) => removedEndpoint<DebugSearchResult>('/v1/search'),
+
+  chat: async (_model: string, _messages: DebugChatMessage[], _reasoningEffort = '') => (
+    removedEndpoint<DebugChatCompletion>('/v1/chat/completions')
   ),
 
-  createEditableFileTask: async (kind: DebugEditableKind, input: { prompt: string; base64_images?: string[] }) => {
-    const payload = {
-      client_task_id: createDebugClientTaskId(kind),
-      prompt: input.prompt,
-      base64_images: input.base64_images || [],
-    }
-    return apiClient.post<typeof payload, DebugEditableFileTask>(endpointForEditableKind(kind), payload)
-  },
+  createEditableFileTask: async (kind: DebugEditableKind, _input: { prompt: string; base64_images?: string[] }) => (
+    removedEndpoint<DebugEditableFileTask>(endpointForEditableKind(kind))
+  ),
 
-  listEditableFileTasks: async (ids?: string[]) => {
-    const params = ids?.length ? { ids: ids.join(',') } : undefined
-    return apiClient.get<never, DebugEditableTasksResponse>('/v1/editable-file-tasks', { params })
-  },
+  listEditableFileTasks: async (_ids?: string[]) => removedEndpoint<DebugEditableTasksResponse>('/v1/editable-file-tasks'),
 }

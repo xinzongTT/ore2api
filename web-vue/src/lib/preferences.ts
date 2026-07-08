@@ -17,6 +17,7 @@ export const preferenceKeys = {
   studioConversations: 'studio-conversations',
   studioFullscreen: 'studio-fullscreen',
   studioImageModel: 'studio-image-model',
+  studioVideoModel: 'studio-video-model',
   studioSidebarWidth: 'studio-sidebar-width',
   themeMode: 'theme-mode',
 } as const

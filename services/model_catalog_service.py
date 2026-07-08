@@ -4,23 +4,14 @@ from typing import Any
 
 from services.account_service import account_service
 from services.config import config
-from utils.helper import CODEX_IMAGE_MODEL
+from services.oreate_backend_api import OREATE_IMAGE_MODELS, OREATE_VIDEO_MODELS
 
 
-FALLBACK_CHAT_MODELS = [
-    "auto",
-    "gpt-5",
-    "gpt-5-1",
-    "gpt-5-2",
-    "gpt-5-3",
-    "gpt-5-3-mini",
-    "gpt-5-5",
-    "gpt-5-mini",
-]
+FALLBACK_CHAT_MODELS: list[str] = []
 
-FALLBACK_IMAGE_MODELS = [
-    "gpt-image-2",
-]
+FALLBACK_IMAGE_MODELS = [str(model.get("id") or "") for model in OREATE_IMAGE_MODELS if model.get("id")]
+
+FALLBACK_VIDEO_MODELS = [str(model.get("id") or "") for model in OREATE_VIDEO_MODELS if model.get("id")]
 
 
 def _normalize_list(raw: object) -> list[str]:
@@ -78,20 +69,7 @@ def _image_models_from_accounts(accounts: list[dict[str, Any]]) -> list[str]:
     if not available_accounts:
         return []
 
-    models: list[str] = ["gpt-image-2"]
-    codex_types = {
-        normalized
-        for account in available_accounts
-        if account_service._normalize_source_type(account.get("source_type")) == "codex"
-        and (normalized := account_service._normalize_account_type(account.get("type")))
-    }
-
-    if codex_types & {"Plus", "Team", "Pro"}:
-        models.append(CODEX_IMAGE_MODEL)
-    for plan_type in ("Plus", "Team", "Pro"):
-        if plan_type in codex_types:
-            models.append(f"{plan_type.lower()}-{CODEX_IMAGE_MODEL}")
-    return models
+    return list(FALLBACK_IMAGE_MODELS)
 
 
 def _unique(values: list[str]) -> list[str]:
@@ -107,11 +85,10 @@ def _unique(values: list[str]) -> list[str]:
 
 def get_model_catalog() -> dict[str, Any]:
     settings = config.get()
-    configured_chat_models = _configured_chat_models(settings)
     configured_image_models = _configured_image_models(settings)
 
-    chat_source = "config" if configured_chat_models else "fallback"
-    chat_models = configured_chat_models or list(FALLBACK_CHAT_MODELS)
+    chat_source = "removed"
+    chat_models = list(FALLBACK_CHAT_MODELS)
 
     if configured_image_models:
         image_source = "config"
@@ -121,18 +98,20 @@ def get_model_catalog() -> dict[str, Any]:
         image_source = "accounts" if account_models else "fallback"
         image_models = account_models or list(FALLBACK_IMAGE_MODELS)
 
-    chat_models = _unique(chat_models)
     image_models = _unique(image_models)
-    all_models = _unique([*chat_models, *image_models])
+    video_models = _unique(list(FALLBACK_VIDEO_MODELS))
+    all_models = _unique([*image_models, *video_models])
 
     return {
         "object": "model_catalog",
-        "chat_models": chat_models,
+        "chat_models": _unique(chat_models),
         "image_models": image_models,
+        "video_models": video_models,
         "all_models": all_models,
         "source": {
             "chat": chat_source,
             "image": image_source,
+            "video": "fallback",
         },
         "openai_models_endpoint": "/v1/models",
     }

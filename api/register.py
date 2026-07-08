@@ -20,6 +20,8 @@ class RegisterConfigRequest(BaseModel):
     target_quota: int | None = None
     target_available: int | None = None
     check_interval: int | None = None
+    invite_enabled: bool | None = None
+    invite_daily_limit: int | None = None
 
 
 class OutlookPoolResetRequest(BaseModel):

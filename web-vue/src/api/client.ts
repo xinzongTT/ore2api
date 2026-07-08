@@ -1,22 +1,33 @@
 import axios, { type AxiosError, type AxiosInstance } from 'axios'
 
-export const AUTH_TOKEN_STORAGE_KEY = 'chatgpt2api.adminKey'
+export const AUTH_TOKEN_STORAGE_KEY = 'oreate2api.adminKey'
+const LEGACY_AUTH_TOKEN_STORAGE_KEY = 'chatgpt2api.adminKey'
 
 export function getAuthToken() {
-  return window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) || ''
+  const token = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
+  if (token) return token
+  const legacyToken = window.localStorage.getItem(LEGACY_AUTH_TOKEN_STORAGE_KEY) || ''
+  if (legacyToken) {
+    window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, legacyToken)
+    window.localStorage.removeItem(LEGACY_AUTH_TOKEN_STORAGE_KEY)
+  }
+  return legacyToken
 }
 
 export function setAuthToken(token: string) {
   const cleanToken = token.trim()
   if (cleanToken) {
     window.localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, cleanToken)
+    window.localStorage.removeItem(LEGACY_AUTH_TOKEN_STORAGE_KEY)
     return
   }
   window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+  window.localStorage.removeItem(LEGACY_AUTH_TOKEN_STORAGE_KEY)
 }
 
 export function clearAuthToken() {
   window.localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+  window.localStorage.removeItem(LEGACY_AUTH_TOKEN_STORAGE_KEY)
 }
 
 type UnauthorizedHandler = () => void | Promise<void>
@@ -72,10 +83,10 @@ function extractErrorMessage(data: unknown, fallback: string, status?: number) {
 function routeAvailabilityHint(status: number | undefined, requestUrl: string) {
   if (status !== 404 && status !== 405) return ''
   if (requestUrl.includes('/api/register')) {
-    return '后端未加载注册账号接口，请重启 chatgpt2api 后端并确认已部署最新代码'
+    return '后端未加载注册账号接口，请重启 oreate2api 后端并确认已部署最新代码'
   }
   if (requestUrl.includes('/api/accounts/import-cleanup')) {
-    return '后端未加载导入异常清理接口，请重启 chatgpt2api 后端后再试'
+    return '后端未加载导入异常清理接口，请重启 oreate2api 后端后再试'
   }
   return ''
 }

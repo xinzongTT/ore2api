@@ -1,4 +1,6 @@
-export type StudioComposeMode = 'chat' | 'image' | 'search'
+import type { ImageTaskAsset } from '@/api/imageTasks'
+
+export type StudioComposeMode = 'chat' | 'image' | 'video' | 'search'
 export type StudioRole = 'user' | 'assistant'
 export type StudioMessageStatus = 'sending' | 'streaming' | 'queued' | 'running' | 'done' | 'error'
 export type StudioConversationBadgeState = 'running' | 'done' | 'error'
@@ -20,6 +22,10 @@ export interface StudioMessage {
   imageSize?: string
   imageCount?: number
   taskId?: string
+  videoAssets?: ImageTaskAsset[]
+  videoRatio?: string
+  videoDuration?: number
+  videoResolution?: string
   error?: string
   attachments?: string[]
   searchSources?: StudioSearchSource[]
@@ -59,6 +65,14 @@ export interface StudioImageForm {
   size: string
   quality: string
   n: number
+}
+
+export interface StudioVideoForm {
+  model: string
+  duration: number
+  aspectRatio: string
+  resolution: string
+  audio: boolean
 }
 
 export interface StudioPreviewImage {

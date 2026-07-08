@@ -19,7 +19,7 @@
         >
           <div class="flex items-center gap-2" :class="isSidebarRail ? 'gap-0 justify-center w-full' : ''">
             <a
-              href="https://github.com/yukkcat/chatgpt2api"
+              href="https://github.com/oreate2api/oreate2api"
               target="_blank"
               rel="noopener noreferrer"
               class="text-foreground transition-colors hover:text-primary"
@@ -35,7 +35,7 @@
               </svg>
             </a>
             <div v-if="!isSidebarRail" class="min-w-0">
-              <p class="ui-section-title">ChatGPT2API</p>
+              <p class="ui-section-title">oreate2api</p>
             </div>
           </div>
         </div>
@@ -745,7 +745,7 @@ const apiBaseUrl = computed(() => {
 })
 
 const apiSdkUrl = computed(() => `${apiBaseUrl.value}/v1`)
-const apiFullUrl = computed(() => `${apiBaseUrl.value}/v1/chat/completions`)
+const apiFullUrl = computed(() => `${apiBaseUrl.value}/v1/images/generations`)
 const apiKeyDisplay = computed(() => currentAuthToken.value || '未登录')
 const currentVersionLabel = computed(() => normalizeVersionTag(currentVersionTag.value || ''))
 const latestVersionLabel = computed(() => normalizeVersionTag(latestVersionTag.value || releaseEntries.value[0]?.version || currentVersionTag.value || ''))
@@ -774,9 +774,9 @@ let stopRoutePendingBeforeEach: (() => void) | null = null
 let stopRoutePendingAfterEach: (() => void) | null = null
 let stopRoutePendingError: (() => void) | null = null
 const prefetchedRoutePaths = new Set<string>()
-const releasePageUrl = 'https://github.com/yukkcat/chatgpt2api/releases'
-const latestVersionUrl = 'https://raw.githubusercontent.com/yukkcat/chatgpt2api/main/VERSION'
-const latestChangelogUrl = 'https://raw.githubusercontent.com/yukkcat/chatgpt2api/main/CHANGELOG.md'
+const releasePageUrl = 'https://github.com/oreate2api/oreate2api/releases'
+const latestVersionUrl = 'https://raw.githubusercontent.com/oreate2api/oreate2api/main/VERSION'
+const latestChangelogUrl = 'https://raw.githubusercontent.com/oreate2api/oreate2api/main/CHANGELOG.md'
 const updateCheckingMessage = '正在检查云端版本...'
 const routeViewLoaders: Record<string, () => Promise<unknown>> = {
   '/': () => import('@/views/Dashboard.vue'),

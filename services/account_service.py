@@ -1015,7 +1015,13 @@ class AccountService:
             current = self._accounts.get(access_token)
             if current is None:
                 return None
-            account = self._normalize_account({**current, **updates, "access_token": access_token})
+            next_item = {**current, **updates, "access_token": access_token}
+            if str(next_item.get("status") or "").strip() == "正常":
+                next_item["invalid_count"] = 0
+                next_item["last_invalid_at"] = None
+                next_item["last_refresh_error"] = None
+                next_item["last_refresh_error_at"] = None
+            account = self._normalize_account(next_item)
             if account is None:
                 return None
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
@@ -1121,6 +1127,10 @@ class AccountService:
         if not access_token:
             raise ValueError("access_token is required")
 
+        _resolved_token, current_account = self._get_account_for_token(access_token)
+        if self._normalize_source_type((current_account or {}).get("source_type")) == "oreateai":
+            return self._fetch_oreate_remote_info(access_token, event, remove_invalid=remove_invalid)
+
         active_token = self.refresh_access_token(access_token, event=f"{event}:preflight") or access_token
         try:
             from services.openai_backend_api import InvalidAccessTokenError, OpenAIBackendAPI
@@ -1156,6 +1166,35 @@ class AccountService:
         # update_account 可能因为“自动移除额度耗尽账号”删除了远程确认限流的账号。
         # 调用方仍需要知道本次预检的真实结果，不能把它混成普通预检失败。
         return {**result, "access_token": active_token, "_removed_after_refresh": True}
+
+    def _fetch_oreate_remote_info(
+        self,
+        access_token: str,
+        event: str,
+        remove_invalid: bool | None = None,
+    ) -> dict[str, Any] | None:
+        resolved_token, current_account = self._get_account_for_token(access_token)
+        if current_account is None:
+            raise ValueError("account not found")
+        from services.oreate_backend_api import OreateAuthError, fetch_account_remote_info
+
+        try:
+            result = fetch_account_remote_info(current_account)
+        except OreateAuthError as exc:
+            self.handle_invalid_token(
+                resolved_token,
+                event,
+                error=str(exc),
+                remove=remove_invalid,
+            )
+            raise
+        updated = self.update_account(
+            resolved_token,
+            {**result, "source_type": "oreateai"},
+        )
+        if updated is not None:
+            return updated
+        return {**current_account, **result, "access_token": resolved_token}
 
     # ---- 刷新进度追踪 ----
 

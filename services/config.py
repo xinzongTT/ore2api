@@ -35,7 +35,7 @@ DEFAULT_IMAGE_STORAGE = {
     "webdav_url": "",
     "webdav_username": "",
     "webdav_password": "",
-    "webdav_root_path": "chatgpt2api/images",
+    "webdav_root_path": "oreate2api/images",
     "public_base_url": "",
 }
 

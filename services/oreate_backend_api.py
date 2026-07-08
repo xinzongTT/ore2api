@@ -795,6 +795,16 @@ def _resolve_video_reference_image(session: requests.Session, value: Any) -> str
     return _upload_value(uploaded or {})
 
 
+def _first_video_reference(kwargs: dict[str, Any]) -> Any:
+    value = kwargs.get("image") or kwargs.get("image_url")
+    if value:
+        return value
+    images = kwargs.get("images")
+    if isinstance(images, list) and images:
+        return images[0]
+    return ""
+
+
 def _acquire_generation_account() -> tuple[str, dict]:
     try:
         access_token = account_service.get_available_access_token(source_type="oreateai")
@@ -1194,7 +1204,7 @@ def video_generation(
         session = _make_session(account)
 
         model_configs = _fetch_video_model_configs(session)
-        reference_image = _resolve_video_reference_image(session, kwargs.get("image", ""))
+        reference_image = _resolve_video_reference_image(session, _first_video_reference(kwargs))
         video_config = _build_video_config(
             model=model,
             size=size,

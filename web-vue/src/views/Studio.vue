@@ -1157,14 +1157,17 @@ async function sendImageMessage(conversation: StudioConversation, prompt: string
 
   let task: ImageTask
   try {
-    task = await imageTasksApi.createGeneration({
+    const input = {
       prompt,
       model: imageForm.model || DEFAULT_IMAGE_MODEL,
       n: normalizeImageCount(imageForm.n),
       size: imageForm.size,
       quality: imageForm.quality || DEFAULT_IMAGE_QUALITY,
       files,
-    })
+    }
+    task = files.length
+      ? await imageTasksApi.createEdit(input)
+      : await imageTasksApi.createGeneration(input)
   } catch (error) {
     const message = errorMessage(error, '图片任务提交失败')
     assistantMessage.status = 'error'

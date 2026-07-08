@@ -3,7 +3,7 @@
 **完成日期**: 2026-07-07
 **项目路径**: `E:\A-服务器维护项目\生图维护\二开\chatgpt2api`
 
-> 当前文件保留为集成过程记录。以现有运行代码为准：当前 Oreate-only 构建只对外暴露 `/v1/models`、`/v1/images/generations`、`/v1/video/generations`；旧 chat/search/messages/PPT/PSD 入口已移除并返回 410。
+> 当前文件保留为集成过程记录。以现有运行代码为准：当前 Oreate-only 构建只对外暴露 `/v1/models`、`/v1/images/generations`、`/v1/images/edits`、`/v1/video/generations`；旧 chat/search/messages/PPT/PSD 入口已移除并返回 410。
 
 ---
 

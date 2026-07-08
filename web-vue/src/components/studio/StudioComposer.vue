@@ -300,7 +300,7 @@
           <div class="chat-input-submit-row">
             <div v-if="references.length" class="chat-input-status">
               <span class="min-w-0 truncate">{{ references.length }} 张参考图</span>
-              <span class="chat-input-count">{{ imageForm.n }} 张输出</span>
+              <span class="chat-input-count">{{ referenceStatusOutputLabel }}</span>
             </div>
           <button
             v-if="isStreaming"
@@ -318,7 +318,7 @@
             class="chat-input-send"
             :class="text.trim() && !isSending ? 'chat-input-send-ready' : 'chat-input-send-idle'"
             :disabled="isSending || !text.trim()"
-            :aria-label="mode === 'image' ? '提交图片任务' : '发送消息'"
+            :aria-label="submitAriaLabel"
             @click.stop
           >
             <Icon :icon="isSending ? 'lucide:loader-circle' : 'lucide:send-horizontal'" class="h-4 w-4" :class="{ 'animate-spin': isSending }" />
@@ -503,8 +503,14 @@ const imageSummaryLabel = computed(() => {
   const count = props.imageForm.n > 1 ? ` · ${props.imageForm.n} 张` : ''
   return `${formatImageSizeLabel(props.imageForm.size)}${count}`
 })
+const referenceStatusOutputLabel = computed(() => props.mode === 'video' ? '1 个视频' : `${props.imageForm.n} 张输出`)
 const imagePlaceholder = computed(() => props.references.length ? '描述你想如何修改参考图' : '输入你想生成的画面，也可以粘贴或拖入参考图')
 const videoSummaryLabel = computed(() => `${props.videoForm.aspectRatio} · ${props.videoForm.resolution} · ${props.videoForm.duration}s`)
+const submitAriaLabel = computed(() => {
+  if (props.mode === 'video') return '提交视频任务'
+  if (props.mode === 'image') return '提交图片任务'
+  return '发送消息'
+})
 const placeholderText = computed(() => {
   if (props.mode === 'image') return imagePlaceholder.value
   if (props.mode === 'video') return '输入你想生成的视频画面'

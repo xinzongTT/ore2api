@@ -210,6 +210,8 @@ class ImageTaskService:
         n: int = 1,
         size: str | None = None,
         quality: str = "auto",
+        aspect_ratio: str = "1:1",
+        resolution: str = "1K",
         base_url: str = "",
         images: list[tuple[bytes, str, str]] | None = None,
         masks: list[tuple[bytes, str, str]] | None = None,
@@ -222,6 +224,8 @@ class ImageTaskService:
             "n": _image_count(n),
             "size": size,
             "quality": quality,
+            "aspect_ratio": aspect_ratio,
+            "resolution": resolution,
             "response_format": "url",
             "base_url": base_url,
         }

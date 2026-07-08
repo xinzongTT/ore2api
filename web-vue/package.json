@@ -7,6 +7,7 @@
     "dev": "vite",
     "clean:dist": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
     "build": "npm run clean:dist && tsc && vite build",
+    "test:static": "node scripts/test-oreate-studio-options.mjs && node scripts/test-account-status.mjs && node scripts/test-debug-center-endpoints.mjs && node scripts/test-studio-reference-routing.mjs && node scripts/test-image-edit-request-options.mjs",
     "preview": "vite preview"
   },
   "devDependencies": {

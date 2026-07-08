@@ -123,7 +123,7 @@
 
                 <FormField label="上游流超时">
                   <template #label-extra>
-                    <HelpTip text="单位秒，限制 ChatGPT 生图 SSE 流最长等待时间。" />
+                    <HelpTip text="单位秒，限制 OreateAI 生图 SSE 流最长等待时间。" />
                   </template>
                   <Input
                     :model-value="imageStreamTimeoutField.input.value"

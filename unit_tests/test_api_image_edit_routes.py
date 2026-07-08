@@ -25,7 +25,12 @@ class ApiImageEditRoutesTest(unittest.TestCase):
             response = TestClient(app).post(
                 "/v1/images/edits",
                 headers={"Authorization": "Bearer test"},
-                json={"prompt": "edit this", "image": "data:image/png;base64,aW1hZ2U="},
+                json={
+                    "prompt": "edit this",
+                    "image": "data:image/png;base64,aW1hZ2U=",
+                    "aspect_ratio": "16:9",
+                    "resolution": "4K",
+                },
             )
 
         self.assertEqual(response.status_code, 200)
@@ -33,6 +38,8 @@ class ApiImageEditRoutesTest(unittest.TestCase):
         image_generation.assert_called_once()
         self.assertEqual(image_generation.call_args.kwargs["response_format"], "url")
         self.assertEqual(image_generation.call_args.kwargs["images"][0], (b"image", "image_url.png", "image/png"))
+        self.assertEqual(image_generation.call_args.kwargs["aspect_ratio"], "16:9")
+        self.assertEqual(image_generation.call_args.kwargs["resolution"], "4K")
 
     def test_image_task_edits_accepts_multipart_reference_image(self) -> None:
         app = FastAPI()
@@ -50,7 +57,13 @@ class ApiImageEditRoutesTest(unittest.TestCase):
             response = TestClient(app).post(
                 "/api/image-tasks/edits",
                 headers={"Authorization": "Bearer test"},
-                data={"client_task_id": "task-1", "prompt": "edit this", "model": "gpt-image-2"},
+                data={
+                    "client_task_id": "task-1",
+                    "prompt": "edit this",
+                    "model": "gpt-image-2",
+                    "aspect_ratio": "9:16",
+                    "resolution": "2K",
+                },
                 files={"image": ("reference.png", b"image-bytes", "image/png")},
             )
 
@@ -58,6 +71,8 @@ class ApiImageEditRoutesTest(unittest.TestCase):
         submit_edit.assert_called_once()
         self.assertEqual(submit_edit.call_args.kwargs["client_task_id"], "task-1")
         self.assertEqual(submit_edit.call_args.kwargs["images"], [(b"image-bytes", "reference.png", "image/png")])
+        self.assertEqual(submit_edit.call_args.kwargs["aspect_ratio"], "9:16")
+        self.assertEqual(submit_edit.call_args.kwargs["resolution"], "2K")
 
 
 if __name__ == "__main__":

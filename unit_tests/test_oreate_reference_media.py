@@ -105,6 +105,37 @@ class OreateReferenceMediaTest(unittest.TestCase):
         self.assertEqual(video_config["textOrImage"]["image"], "oreate/object/reference.png")
         self.assertEqual(fake_accounts.results, [("oreate-token", True)])
 
+    def test_video_generation_accepts_image_url_alias(self) -> None:
+        fake_accounts = FakeOreateAccountService()
+        data_url = "data:image/png;base64,aW1hZ2UtYnl0ZXM="
+
+        with (
+            patch.object(oreate_backend_api, "account_service", fake_accounts),
+            patch.object(oreate_backend_api, "_make_session", return_value=object()),
+            patch.object(oreate_backend_api, "_fetch_video_model_configs", return_value=[]),
+            patch.object(
+                oreate_backend_api,
+                "_upload_oreate_media",
+                return_value={"object": "oreate/object/reference.png", "filename": "reference.png", "content_type": "image/png"},
+                create=True,
+            ) as upload_media,
+            patch.object(
+                oreate_backend_api,
+                "_run_generation_stream",
+                return_value={"urls": ["https://cdn.oreateai.com/aivideo/demo.mp4"], "raw": "", "chat_id": "chat-2"},
+            ) as run_stream,
+        ):
+            oreate_backend_api.video_generation(
+                "animate this",
+                image_url=data_url,
+                duration=5,
+                resolution="480P",
+            )
+
+        upload_media.assert_called_once()
+        video_config = run_stream.call_args.args[4]
+        self.assertEqual(video_config["textOrImage"]["image"], "oreate/object/reference.png")
+
 
 if __name__ == "__main__":
     unittest.main()

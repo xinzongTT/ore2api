@@ -72,8 +72,9 @@ SSE data: {event:start|error|end}, 图片 URL 在流中
 
 - `GET  /v1/models`
 - `POST /v1/images/generations`
+- `POST /v1/images/edits`
 - `POST /v1/video/generations`
-- 旧 ChatGPT/OpenAI 兼容入口（chat、responses、messages、search、image edits、PPT/PSD 文件任务）已移除，返回 `410 Gone`
+- 旧 ChatGPT/OpenAI 兼容入口（chat、responses、messages、search、PPT/PSD 文件任务）已移除，返回 `410 Gone`
 - 鉴权：`Authorization: Bearer {auth-key}`（config 里的 auth-key）
 
 ## 八、部署

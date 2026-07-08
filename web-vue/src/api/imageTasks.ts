@@ -337,13 +337,17 @@ async function referenceImagesFromInput(input: CreateGenerationTaskInput) {
 }
 
 function createEditForm(input: CreateEditTaskInput) {
+  const model = input.model || DEFAULT_IMAGE_MODEL
+  const preset = resolveImageRequestPreset(input.size, model)
   const form = new FormData()
   form.append('client_task_id', input.clientTaskId || createClientTaskId('edit'))
   form.append('prompt', input.prompt)
-  form.append('model', input.model || DEFAULT_IMAGE_MODEL)
+  form.append('model', model)
   form.append('n', String(normalizeImageCount(input.n)))
   form.append('quality', input.quality || DEFAULT_IMAGE_QUALITY)
-  const size = requestSize(input.size)
+  form.append('aspect_ratio', preset.aspectRatio)
+  form.append('resolution', preset.resolution)
+  const size = requestSize(preset.size)
   if (size) form.append('size', size)
 
   const imageUrls = normalizeUrlList(input.imageUrls)

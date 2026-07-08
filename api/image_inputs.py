@@ -73,6 +73,8 @@ def _payload_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
         "quality": _clean(fields.get("quality"), "auto"),
         "response_format": _clean(fields.get("response_format"), "url"),
         "stream": _parse_bool(fields.get("stream")),
+        "aspect_ratio": _clean(fields.get("aspect_ratio"), "1:1"),
+        "resolution": _clean(fields.get("resolution"), "1K"),
     }
     if "client_task_id" in fields:
         payload["client_task_id"] = _clean(fields.get("client_task_id"))
@@ -183,7 +185,18 @@ async def parse_image_edit_request(request: Request) -> tuple[dict[str, Any], li
 
     form = await request.form()
     fields: dict[str, Any] = {}
-    for key in ("client_task_id", "prompt", "model", "n", "size", "quality", "response_format", "stream"):
+    for key in (
+        "client_task_id",
+        "prompt",
+        "model",
+        "n",
+        "size",
+        "quality",
+        "response_format",
+        "stream",
+        "aspect_ratio",
+        "resolution",
+    ):
         value = form.get(key)
         if isinstance(value, str):
             fields[key] = value

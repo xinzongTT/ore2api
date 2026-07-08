@@ -201,12 +201,13 @@ environment:
 
 - `GET /v1/models`：返回当前可用的 OreateAI 图片/视频模型。
 - `POST /v1/images/generations`：图片生成，返回 OreateAI CDN URL，`response_format` 仅支持 `url`。
+- `POST /v1/images/edits`：图生图/图片编辑，支持 JSON `image_url`、`image`、`images[0]` 和 multipart 上传参考图。
 - `POST /v1/video/generations`：视频生成，支持 `duration`、`aspect_ratio`、`resolution`、`audio`、`image`。
-- 已移除的旧 ChatGPT/OpenAI 兼容入口会返回 `410 Gone`，包括 chat、responses、messages、search、image edits、PPT/PSD 文件任务。
+- 已移除的旧 ChatGPT/OpenAI 兼容入口会返回 `410 Gone`，包括 chat、responses、messages、search、PPT/PSD 文件任务。
 
 ### 对话画图工作台
 
-- 侧边栏会话 + 底部输入框布局，当前新请求只开放文生图路径。
+- 侧边栏会话 + 底部输入框布局，支持文生图、图生图，以及视频生成中的文生视频/图生视频路径。
 - 支持 `gpt-image-2` 以及 `/v1/models` 返回的 OreateAI 图片模型。
 - 支持推理强度：低 / 中 / 高 / 超高，透传为 `reasoning_effort`。
 - 支持 Markdown 渲染、代码块、搜索引用来源、官网式 `cite` / `image_group` 占位解析和图片建议展示。

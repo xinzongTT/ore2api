@@ -125,6 +125,8 @@ def create_router() -> APIRouter:
                 n=payload.get("n", 1),
                 size=payload.get("size"),
                 quality=payload.get("quality", "auto"),
+                aspect_ratio=payload.get("aspect_ratio", "1:1"),
+                resolution=payload.get("resolution", "1K"),
                 images=images,
                 masks=masks,
                 base_url=resolve_image_base_url(request),

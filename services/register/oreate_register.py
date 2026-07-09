@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from curl_cffi import requests
 
@@ -23,6 +24,9 @@ base_dir = Path(__file__).resolve().parent
 
 OREATE_BASE = "https://www.oreateai.com"
 OREATE_API_BASE = "https://www.oreateai.com"
+OREATE_REGISTER_PATH = "/userlogin/register"
+DEFAULT_REGISTER_URL = f"{OREATE_BASE}{OREATE_REGISTER_PATH}"
+DEFAULT_REGISTER_PASSWORD = "Aa123132@"
 
 config = {
     "mail": {
@@ -33,6 +37,7 @@ config = {
         "providers": [],
     },
     "proxy": "",
+    "register_url": DEFAULT_REGISTER_URL,
     "total": 10,
     "threads": 3,
     # 邀请裂变积分设置
@@ -47,7 +52,13 @@ _invite_lock = threading.Lock()
 register_config_file = base_dir.parents[1] / "data" / "register.json"
 try:
     saved_config = read_json_object(register_config_file, name="register.json")
-    config.update({key: saved_config[key] for key in ("mail", "proxy", "total", "threads") if key in saved_config})
+    config.update(
+        {
+            key: saved_config[key]
+            for key in ("mail", "proxy", "register_url", "total", "threads", "invite_enabled", "invite_daily_limit")
+            if key in saved_config
+        }
+    )
 except Exception:
     pass
 
@@ -294,6 +305,53 @@ def _truthy(value: object, fallback: bool = False) -> bool:
     return fallback
 
 
+def _normalize_register_url(register_url: str = "") -> str:
+    raw = str(register_url or "").strip()
+    if not raw:
+        return DEFAULT_REGISTER_URL
+    parsed = urlparse(raw)
+    if parsed.scheme and parsed.netloc:
+        return urlunparse(parsed._replace(fragment=""))
+    if raw.startswith("?"):
+        return f"{DEFAULT_REGISTER_URL}{raw}"
+    if raw.startswith("/"):
+        return f"{OREATE_BASE}{raw}"
+    return DEFAULT_REGISTER_URL
+
+
+def _build_register_context(register_url: str = "", invite_code: str = "") -> dict[str, str]:
+    normalized_url = _normalize_register_url(register_url)
+    parsed = urlparse(normalized_url)
+    query = dict(parse_qsl(parsed.query, keep_blank_values=False))
+
+    explicit_invite_code = str(invite_code or "").strip()
+    query_invite_code = str(query.get("inviteCode") or "").strip()
+    final_invite_code = explicit_invite_code or query_invite_code
+
+    query_fr = str(query.get("fr") or "").strip()
+    fr = query_fr or "main"
+    if final_invite_code:
+        fr = "inviteFriend"
+
+    fission_code = str(query.get("fissionCode") or "").strip()
+    referer_query: list[tuple[str, str]] = []
+    if query_fr or final_invite_code:
+        referer_query.append(("fr", fr))
+    if final_invite_code:
+        referer_query.append(("inviteCode", final_invite_code))
+    if fission_code:
+        referer_query.append(("fissionCode", fission_code))
+    referer = urlunparse(parsed._replace(query=urlencode(referer_query), fragment=""))
+
+    return {
+        "register_url": normalized_url,
+        "referer": referer,
+        "fr": fr,
+        "invite_code": final_invite_code,
+        "fission_code": fission_code,
+    }
+
+
 def _mail_config(register_proxy: str = "") -> dict:
     mail = config["mail"] if isinstance(config.get("mail"), dict) else {}
     use_register_proxy = _truthy(mail.get("api_use_register_proxy"), True)
@@ -392,9 +450,10 @@ class OreateRegistrar:
     认证方式: Cookie JWT (ics_vsid + ouss), 不是 Bearer token
     """
 
-    def __init__(self, proxy: str = "", invite_code: str = "") -> None:
+    def __init__(self, proxy: str = "", invite_code: str = "", register_url: str = "") -> None:
         self.proxy = str(proxy or "").strip()
         self.invite_code = str(invite_code or "").strip()  # 邀请码，触发双方 +100 积分
+        self.register_context = _build_register_context(register_url or str(config.get("register_url") or ""), self.invite_code)
         self.fingerprint = _make_browser_fingerprint()
         self.session = create_session(self.proxy, self.fingerprint)
         self.access_token = ""
@@ -403,6 +462,29 @@ class OreateRegistrar:
         self.ouss = ""
         self.cookies = {}
         self._password_plain = ""
+
+    @property
+    def register_referer(self) -> str:
+        return str(self.register_context.get("referer") or DEFAULT_REGISTER_URL)
+
+    def _js_token(self) -> str:
+        # 前端 axios 拦截器：payload 含 jt 时会替换为 banti jsToken 字符串。
+        # 上游校验 jt 必须是非空字符串；布尔 true / 空串会返回 code=100002 Invalid parameter。
+        return "1"
+
+    def _register_context_payload(self) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "jt": self._js_token(),
+            "fr": str(self.register_context.get("fr") or "main"),
+            "plat": "wap",
+        }
+        invite_code = str(self.register_context.get("invite_code") or "").strip()
+        fission_code = str(self.register_context.get("fission_code") or "").strip()
+        if invite_code:
+            payload["inviteCode"] = invite_code
+        if fission_code:
+            payload["fissionCode"] = fission_code
+        return payload
 
     def close(self) -> None:
         try:
@@ -436,7 +518,7 @@ class OreateRegistrar:
                 "get",
                 f"{OREATE_API_BASE}/passport/api/getticket",
                 retry_attempts=2,
-                headers={**common_headers, "referer": f"{OREATE_BASE}/userlogin/register/zh"},
+                headers={**common_headers, "referer": self.register_referer},
             )
             if resp is not None and resp.status_code == 200 and resp.text:
                 break
@@ -452,35 +534,36 @@ class OreateRegistrar:
         step(index, f"ticket 获取成功: {ticket_id[:8]}...")
         return ticket_id, pk
 
-    def _register_email(self, email: str, password_raw: str, index: int) -> tuple[str, str, str]:
+    def _register_email(self, email: str, password_raw: str, index: int) -> tuple[str, str]:
         """邮箱注册 (POST /passport/api/emailsignupin)
 
         流程（浏览器抓包 + JS 逆向确认）：
         1. GET /passport/api/getticket → {ticketID, pk}
         2. RSA-PKCS1v15 加密密码
-        3. POST /passport/api/emailsignupin {email, ticketID, password} （仅三个必填字段）
+        3. POST /passport/api/emailsignupin {email, ticketID, password}
            → 平台发验证邮件到 email
 
-        返回: (ticket_id, encrypted_pwd, invite_used)
+        返回: (ticket_id, encrypted_pwd)
         """
         step(index, "开始 OreateAI 邮箱注册")
         ticket_id, pk = self._get_ticket(index)
         encrypted_pwd = _rsa_encrypt(password_raw, pk)
-        if self.invite_code:
-            step(index, f"使用邀请码: {self.invite_code[:16]}...（成功后双方 +100 积分）")
-        # 注意：只传三个必填字段，多传任何额外字段会导致 code 100002
-        payload = {"email": email, "ticketID": ticket_id, "password": encrypted_pwd}
-        if self.invite_code:
-            payload["inviteCode"] = self.invite_code
-            # referer 携带邀请上下文（前端邀请链接即带 fr=inviteFriend&inviteCode）
-            referer = f"{OREATE_BASE}/userlogin/register/zh?fr=inviteFriend&inviteCode={self.invite_code}"
-        else:
-            referer = f"{OREATE_BASE}/userlogin/register/zh"
+        context_invite = str(self.register_context.get("invite_code") or "").strip()
+        if context_invite:
+            step(index, f"使用邀请码: {context_invite[:16]}...（成功后双方 +100 积分）")
+        # 与前端 mke()/createAccount 对齐：jt 必须是非空字符串，并带 fr/plat。
+        # inviteCode/fissionCode 可在 signup 出现，但邀请绑定仍以 confirm 为准。
+        payload = {
+            "email": email,
+            "ticketID": ticket_id,
+            "password": encrypted_pwd,
+            **self._register_context_payload(),
+        }
         resp, error = request_with_local_retry(
             self.session, "post",
             f"{OREATE_API_BASE}/passport/api/emailsignupin",
             json=payload,
-            headers={**common_headers, "referer": referer},
+            headers={**common_headers, "referer": self.register_referer},
         )
         if resp is None or resp.status_code not in (200, 201):
             raise RuntimeError(f"emailsignupin 失败: {_response_debug_detail(resp)}")
@@ -506,9 +589,9 @@ class OreateRegistrar:
 
         JS 逆向确认（index-CpcStoMO.js，函数 pke / vs）：
           POST /passport/api/emailregisterconfirm
-          { email, tokenID, ticketID, password(RSA加密), jt: true, fr: "main" }
+          { email, tokenID, ticketID, password(RSA加密), jt(非空字符串), fr, plat, inviteCode, fissionCode }
         tokenID 来自验证邮件链接:
-          https://oreateai.com/userlogin/register/zh?email=X&tokenID={UUID}
+          https://oreateai.com/userlogin/register?email=X&tokenID={UUID}
         """
         import re as _re
         step(index, f"等待验证邮件 (最多 {timeout}s)...")
@@ -541,7 +624,7 @@ class OreateRegistrar:
         JS 逆向（index-CpcStoMO.js 函数 pke/vs）真实 payload：
           v = {email, tokenID, plat:"wap", fr, fissionCode, inviteCode}
           fr/fissionCode/inviteCode 来自 URL query（Bh("...")）
-        邀请链接格式：{origin}/userlogin/register/zh?fr=inviteFriend&inviteCode={CODE}
+        邀请链接格式：{origin}/userlogin/register?fr=inviteFriend&inviteCode={CODE}
         ★ 关键：邀请绑定发生在 confirm 这一步，必须带 fr="inviteFriend"+inviteCode，
           仅在 emailsignupin 传 inviteCode 不会记入邀请（之前失败原因）。
 
@@ -557,20 +640,13 @@ class OreateRegistrar:
             "tokenID": token_id,
             "ticketID": confirm_ticket,
             "password": confirm_pwd,
-            "plat": "wap",
+            **self._register_context_payload(),
         }
-        # 带邀请码时补全 fr/inviteCode（邀请奖励绑定就在这一步）
-        if self.invite_code:
-            payload["fr"] = "inviteFriend"
-            payload["inviteCode"] = self.invite_code
-            referer = f"{OREATE_BASE}/userlogin/register/zh?fr=inviteFriend&inviteCode={self.invite_code}"
-        else:
-            referer = f"{OREATE_BASE}/userlogin/register/zh"
         resp, error = request_with_local_retry(
             self.session, "post",
             f"{OREATE_API_BASE}/passport/api/emailregisterconfirm",
             json=payload,
-            headers={**common_headers, "referer": referer},
+            headers={**common_headers, "referer": self.register_referer},
         )
         if resp is None or resp.status_code not in (200, 201):
             step(index, f"emailregisterconfirm 失败: {_response_debug_detail(resp)}", "red")
@@ -601,7 +677,7 @@ class OreateRegistrar:
         step(index, f"邮箱创建完成[{label}]: {email}")
 
         try:
-            password = _random_password()
+            password = DEFAULT_REGISTER_PASSWORD
             self._password_plain = password  # confirm 阶段需用新 pk 重新加密
             # 1. 注册：emailsignupin → 平台发验证邮件
             ticket_id, encrypted_pwd = self._register_email(email, password, index)
@@ -697,7 +773,7 @@ def _pick_invite_code() -> str:
 def worker(index: int) -> dict:
     start = time.time()
     invite_code = _pick_invite_code()
-    registrar = OreateRegistrar(config["proxy"], invite_code=invite_code)
+    registrar = OreateRegistrar(config["proxy"], invite_code=invite_code, register_url=str(config.get("register_url") or ""))
     try:
         step(index, "任务启动" + (f"（带邀请码，双方 +100 积分）" if invite_code else ""))
         result = registrar.register(index)

@@ -16,21 +16,25 @@ OreateAI 用 **Cookie JWT** 认证（非 Bearer Token）：
 1. YYDS Mail 创建邮箱   POST https://maliapi.215.im/v1/accounts  (Bearer api_key)
 2. 获取 ticket+公钥      GET  /passport/api/getticket           → {ticketID, pk(RSA)}
 3. RSA-PKCS1v15 加密密码
-4. 提交注册             POST /passport/api/emailsignupin        {email,ticketID,password[,inviteCode]}
+4. 提交注册             POST /passport/api/emailsignupin
+                        {email,ticketID,password,jt,fr,plat,[inviteCode,fissionCode]}
 5. 轮询邮箱取验证链接    邮件正文含 ?tokenID={UUID}
 6. 确认验证（关键）      POST /passport/api/emailregisterconfirm
-                        {email,tokenID,ticketID(新),password(新pk加密),plat,[fr,inviteCode]}
+                        {email,tokenID,ticketID(新),password(新pk加密),jt,fr,plat,[inviteCode,fissionCode]}
                         → set-cookie ouss/ics_vsid, isLogin:true
 ```
 
 **要点**：
 - confirm 必须用**独立的新 ticket**（不能复用 signupin 的），密码用新 pk 重新加密
+- `register_url` 保存 Oreate 注册页 URL；后端从 query 解析 `fr`、`inviteCode`、`fissionCode`，并统一用于 referer / signup / confirm payload
+- `jt` 必须是**非空字符串**（前端 banti jsToken）；传布尔 `true` 或空串会触发 `code=100002 Invalid parameter`
+- `emailsignupin` / `emailregisterconfirm` 都应带 `jt`(字符串) + `fr` + `plat`；邀请绑定仍以 confirm 的 `inviteCode` 为准
 - 密码规则：8-16 位，含数字+字母+特殊符号（仅 `@#$%^&*`，不含 `!`）
 - **邮箱域名**：`007.hzeg.eu.org` 收不到 OreateAI 验证邮件，务必用 `100811.xyz` 等其它 YYDS 域名
 
 ## 三、邀请裂变（已接入号池，已验证双方各 +100）
 
-**核心**：邀请绑定发生在 **`emailregisterconfirm`** 步骤，必须带 `fr=inviteFriend` + `inviteCode`。
+**核心**：邀请绑定发生在 **`emailregisterconfirm`** 步骤，必须带 `jt`(非空字符串) + `fr=inviteFriend` + `plat=wap` + `inviteCode`。
 仅在 `emailsignupin` 传 inviteCode **不生效**（这是最初失败的原因）。
 
 - `data/register.json` → `invite_enabled: true` 开启
@@ -87,7 +91,7 @@ uv run python main.py         # 或 docker compose up -d
 
 关键配置文件：
 - `config.example.yaml` 是示例；运行时真实配置文件是本地 `config.json`：auth-key、`oreate-proxy`、配额
-- `data/register.json`：YYDS Mail api_key、域名(用 100811.xyz)、invite 开关、`proxy`
+- `data/register.json`：YYDS Mail api_key、域名(用 100811.xyz)、invite 开关、`proxy`、`register_url`
 
 ## 九、代理策略（重要，与注册/生图分离）
 

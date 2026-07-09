@@ -84,6 +84,7 @@ export type LegacyRegisterConfig = {
     [key: string]: unknown
   }
   proxy: string
+  register_url?: string
   total: number
   threads: number
   mode: 'total' | 'quota' | 'available' | string

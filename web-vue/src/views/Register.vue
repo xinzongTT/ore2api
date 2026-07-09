@@ -149,6 +149,17 @@
               <p class="register-proxy-hint register-field--full">
                 {{ registerProxyHint }}
               </p>
+
+              <label class="register-field register-field--full">
+                <span class="register-label">Register URL</span>
+                <Input
+                  v-model.trim="registerConfig.register_url"
+                  block
+                  root-class="font-mono"
+                  placeholder="https://www.oreateai.com/userlogin/register?fr=main"
+                  :disabled="registerConfig.enabled"
+                />
+              </label>
             </div>
           </FormSection>
 
@@ -763,6 +774,7 @@ const defaultRegisterConfig: LegacyRegisterConfig = {
     providers: [],
   },
   proxy: '',
+  register_url: 'https://www.oreateai.com/userlogin/register',
   total: 10,
   threads: 3,
   mode: 'total',
@@ -1657,6 +1669,7 @@ function legacyPayload(): Partial<LegacyRegisterConfig> {
       providers: registerProviders.value.map(sanitizeProvider),
     },
     proxy: String(registerConfig.value.proxy || '').trim(),
+    register_url: String(registerConfig.value.register_url || '').trim(),
     total: Math.max(1, Number(registerConfig.value.total) || 1),
     threads: Math.max(1, Number(registerConfig.value.threads) || 1),
     mode: (registerConfig.value.mode || 'total') as RegisterMode,

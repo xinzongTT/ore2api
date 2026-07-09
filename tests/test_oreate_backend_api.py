@@ -46,6 +46,44 @@ class OreateStreamParsingTest(unittest.TestCase):
 
         self.assertEqual(result["urls"], ["https://cdn.oreateai.com/aivideo/smoke.mp4"])
 
+    def test_stream_reader_obeys_wall_clock_timeout(self):
+        class CreateChatResponse:
+            status_code = 200
+            text = "{}"
+
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {"data": {"chatId": "chat-smoke"}}
+
+        class StreamResponse:
+            status_code = 200
+            text = ""
+
+            def iter_lines(self):
+                yield 'data: {"event":"heartbeat"}'
+                raise AssertionError("stream reader continued after timeout")
+
+        class Session:
+            def __init__(self):
+                self.calls = 0
+
+            def post(self, *args, **kwargs):
+                self.calls += 1
+                return CreateChatResponse() if self.calls == 1 else StreamResponse()
+
+        result = _run_generation_stream(
+            Session(),
+            "aiVideo",
+            "smoke",
+            "videoConfig",
+            {"modelName": "Seedance 2.0 Fast"},
+            timeout=0,
+        )
+
+        self.assertEqual(result["urls"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

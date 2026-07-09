@@ -918,7 +918,10 @@ def _run_generation_stream(
         return {"urls": [], "raw": "", "error": f"HTTP {resp.status_code}", "chat_id": chat_id}
 
     chunks: list[str] = []
+    deadline = time.monotonic() + float(timeout)
     for line in resp.iter_lines():
+        if time.monotonic() >= deadline:
+            break
         if not line:
             continue
         text = line.decode("utf-8") if isinstance(line, (bytes, bytearray)) else str(line)

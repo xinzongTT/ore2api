@@ -264,7 +264,7 @@ def create_router() -> APIRouter:
         raise _removed_openai_feature("/v1/editable-file-tasks")
 
     @router.post("/v1/editable-file-tasks")
-    async def create_editable_file_task(body: Request, request: Request, authorization: str | None = Header(default=None)):
+    async def create_editable_file_task(authorization: str | None = Header(default=None)):
         require_identity(authorization)
         raise _removed_openai_feature("/v1/editable-file-tasks")
 
@@ -273,12 +273,12 @@ def create_router() -> APIRouter:
         raise _removed_openai_feature("/files/*")
 
     @router.post("/v1/ppt/generations")
-    async def create_ppt_task(body: Request, request: Request, authorization: str | None = Header(default=None)):
+    async def create_ppt_task(authorization: str | None = Header(default=None)):
         require_identity(authorization)
         raise _removed_openai_feature("/v1/ppt/generations")
 
     @router.post("/v1/psd/generations")
-    async def create_psd_task(body: Request, request: Request, authorization: str | None = Header(default=None)):
+    async def create_psd_task(authorization: str | None = Header(default=None)):
         require_identity(authorization)
         raise _removed_openai_feature("/v1/psd/generations")
 

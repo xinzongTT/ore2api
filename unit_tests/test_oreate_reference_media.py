@@ -83,7 +83,12 @@ class OreateReferenceMediaTest(unittest.TestCase):
             patch.object(
                 oreate_backend_api,
                 "_upload_oreate_media",
-                return_value={"object": "oreate/object/reference.png", "filename": "reference.png", "content_type": "image/png"},
+                return_value={
+                    "object": "oreate/object/reference.png",
+                    "filename": "reference.png",
+                    "content_type": "image/png",
+                    "size": len(b"image-bytes"),
+                },
                 create=True,
             ) as upload_media,
             patch.object(
@@ -103,6 +108,23 @@ class OreateReferenceMediaTest(unittest.TestCase):
         upload_media.assert_called_once()
         video_config = run_stream.call_args.args[4]
         self.assertEqual(video_config["textOrImage"]["image"], "oreate/object/reference.png")
+        attachments = run_stream.call_args.kwargs.get("attachments")
+        self.assertEqual(
+            attachments,
+            [
+                {
+                    "bos_url": "oreate/object/reference.png",
+                    "bosUrl": "oreate/object/reference.png",
+                    "docId": "",
+                    "doc_title": "reference",
+                    "doc_type": "png",
+                    "size": len(b"image-bytes"),
+                    "flag": "upload",
+                    "type": "file",
+                    "status": 1,
+                }
+            ],
+        )
         self.assertEqual(fake_accounts.results, [("oreate-token", True)])
 
     def test_video_generation_accepts_image_url_alias(self) -> None:
@@ -116,7 +138,12 @@ class OreateReferenceMediaTest(unittest.TestCase):
             patch.object(
                 oreate_backend_api,
                 "_upload_oreate_media",
-                return_value={"object": "oreate/object/reference.png", "filename": "reference.png", "content_type": "image/png"},
+                return_value={
+                    "object": "oreate/object/reference.png",
+                    "filename": "reference.png",
+                    "content_type": "image/png",
+                    "size": len(b"image-bytes"),
+                },
                 create=True,
             ) as upload_media,
             patch.object(
@@ -135,6 +162,23 @@ class OreateReferenceMediaTest(unittest.TestCase):
         upload_media.assert_called_once()
         video_config = run_stream.call_args.args[4]
         self.assertEqual(video_config["textOrImage"]["image"], "oreate/object/reference.png")
+        attachments = run_stream.call_args.kwargs.get("attachments")
+        self.assertEqual(
+            attachments,
+            [
+                {
+                    "bos_url": "oreate/object/reference.png",
+                    "bosUrl": "oreate/object/reference.png",
+                    "docId": "",
+                    "doc_title": "reference",
+                    "doc_type": "png",
+                    "size": len(b"image-bytes"),
+                    "flag": "upload",
+                    "type": "file",
+                    "status": 1,
+                }
+            ],
+        )
 
 
 if __name__ == "__main__":

@@ -714,6 +714,25 @@ def _upload_value(uploaded: dict[str, Any]) -> str:
     ).strip()
 
 
+def _oreate_attachment_from_uploaded(uploaded: dict[str, Any]) -> dict[str, Any] | None:
+    object_ref = _upload_value(uploaded)
+    if not object_ref:
+        return None
+    filename = _safe_reference_filename(uploaded.get("filename"), str(uploaded.get("content_type") or "image/png"))
+    stem, _, ext = filename.rpartition(".")
+    return {
+        "bos_url": object_ref,
+        "bosUrl": object_ref,
+        "docId": "",
+        "doc_title": stem or filename,
+        "doc_type": ext or _extension_from_mime(str(uploaded.get("content_type") or "image/png")),
+        "size": int(uploaded.get("size") or 0),
+        "flag": "upload",
+        "type": "file",
+        "status": 1,
+    }
+
+
 def _uploaded_from_internal_reference(value: str) -> dict[str, Any]:
     filename = PurePosixPath(value).name or "reference.png"
     content_type = _reference_content_type(filename)
@@ -767,32 +786,21 @@ def _build_oreate_attachments(session: requests.Session, values: Any) -> list[di
         uploaded = _prepare_oreate_media_reference(session, value)
         if not uploaded:
             continue
-        object_ref = _upload_value(uploaded)
-        if not object_ref:
-            continue
-        filename = _safe_reference_filename(uploaded.get("filename"), str(uploaded.get("content_type") or "image/png"))
-        stem, _, ext = filename.rpartition(".")
-        attachments.append(
-            {
-                "bos_url": object_ref,
-                "bosUrl": object_ref,
-                "docId": "",
-                "doc_title": stem or filename,
-                "doc_type": ext or _extension_from_mime(str(uploaded.get("content_type") or "image/png")),
-                "size": int(uploaded.get("size") or 0),
-                "flag": "upload",
-                "type": "file",
-                "status": 1,
-            }
-        )
+        attachment = _oreate_attachment_from_uploaded(uploaded)
+        if attachment:
+            attachments.append(attachment)
     return attachments
 
 
-def _resolve_video_reference_image(session: requests.Session, value: Any) -> str:
+def _resolve_video_reference_image(session: requests.Session, value: Any) -> tuple[str, list[dict[str, Any]]]:
     if not value:
-        return ""
+        return "", []
     uploaded = _prepare_oreate_media_reference(session, value)
-    return _upload_value(uploaded or {})
+    if not uploaded:
+        return "", []
+    object_ref = _upload_value(uploaded)
+    attachment = _oreate_attachment_from_uploaded(uploaded)
+    return object_ref, [attachment] if attachment else []
 
 
 def _first_video_reference(kwargs: dict[str, Any]) -> Any:
@@ -1204,7 +1212,7 @@ def video_generation(
         session = _make_session(account)
 
         model_configs = _fetch_video_model_configs(session)
-        reference_image = _resolve_video_reference_image(session, _first_video_reference(kwargs))
+        reference_image, attachments = _resolve_video_reference_image(session, _first_video_reference(kwargs))
         video_config = _build_video_config(
             model=model,
             size=size,
@@ -1217,7 +1225,7 @@ def video_generation(
         )
 
         result = _run_generation_stream(
-            session, "aiVideo", prompt, "videoConfig", video_config, timeout=600
+            session, "aiVideo", prompt, "videoConfig", video_config, timeout=600, attachments=attachments
         )
         if result.get("error"):
             logger.error(f"OreateAI video gen error: {result['error']}")

@@ -94,7 +94,7 @@ class OreateReferenceMediaTest(unittest.TestCase):
             patch.object(
                 oreate_backend_api,
                 "_run_generation_stream",
-                return_value={"urls": ["https://cdn.oreateai.com/aivideo/demo.mp4"], "raw": "", "chat_id": "chat-2"},
+                return_value={"urls": ["https://cdn.oreateai.com/aivideo/unit-test-video.mp4"], "raw": "", "chat_id": "chat-2"},
             ) as run_stream,
         ):
             result = oreate_backend_api.video_generation(
@@ -104,7 +104,7 @@ class OreateReferenceMediaTest(unittest.TestCase):
                 resolution="480P",
             )
 
-        self.assertEqual(result["data"][0]["url"], "https://cdn.oreateai.com/aivideo/demo.mp4")
+        self.assertEqual(result["data"][0]["url"], "https://cdn.oreateai.com/aivideo/unit-test-video.mp4")
         upload_media.assert_called_once()
         video_config = run_stream.call_args.args[4]
         self.assertEqual(video_config["textOrImage"]["image"], "oreate/object/reference.png")
@@ -149,7 +149,7 @@ class OreateReferenceMediaTest(unittest.TestCase):
             patch.object(
                 oreate_backend_api,
                 "_run_generation_stream",
-                return_value={"urls": ["https://cdn.oreateai.com/aivideo/demo.mp4"], "raw": "", "chat_id": "chat-2"},
+                return_value={"urls": ["https://cdn.oreateai.com/aivideo/unit-test-video.mp4"], "raw": "", "chat_id": "chat-2"},
             ) as run_stream,
         ):
             oreate_backend_api.video_generation(

@@ -127,6 +127,13 @@ def _video_reference_image(payload: dict[str, object]) -> str:
     return ""
 
 
+def _normalize_video_model(model: object) -> str:
+    model_id = str(model or "").strip()
+    if model_id == "seedance-2.0":
+        return "seedance-2.0-fast"
+    return model_id or "seedance-2.0-fast"
+
+
 def create_router() -> APIRouter:
     router = APIRouter()
 
@@ -176,7 +183,8 @@ def create_router() -> APIRouter:
     ):
         identity = require_identity(authorization)
         payload = body.model_dump(mode="python")
-        call = LoggedCall(identity, "/v1/video/generations", body.model, "文生视频", request_text=body.prompt)
+        payload["model"] = _normalize_video_model(payload.get("model"))
+        call = LoggedCall(identity, "/v1/video/generations", payload["model"], "文生视频", request_text=body.prompt)
         attach_trace_headers(call, request)
         await filter_or_log(call, body.prompt)
         return await call.run(

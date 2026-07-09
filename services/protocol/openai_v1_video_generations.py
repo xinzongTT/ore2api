@@ -6,6 +6,13 @@ from fastapi.responses import JSONResponse
 from services.oreate_backend_api import video_generation
 
 
+def _normalize_video_model(model: object) -> str:
+    model_id = str(model or "").strip()
+    if model_id == "seedance-2.0":
+        return "seedance-2.0-fast"
+    return model_id or "seedance-2.0-fast"
+
+
 def _reference_image(body: dict) -> str:
     image = str(body.get("image") or body.get("image_url") or "").strip()
     if image:
@@ -20,7 +27,7 @@ async def handle_video_generations(request: Request) -> JSONResponse:
     body = await request.json()
 
     prompt = body.get("prompt", "")
-    model = body.get("model", "seedance-2.0-fast")
+    model = _normalize_video_model(body.get("model", "seedance-2.0-fast"))
     n = body.get("n", 1)
     size = body.get("size", "1024x576")
     duration = body.get("duration", 10)

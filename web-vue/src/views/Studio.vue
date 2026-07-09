@@ -232,7 +232,7 @@ const imageForm = reactive<StudioImageForm>({
   n: 1,
 })
 const videoForm = reactive<StudioVideoForm>({
-  model: getStringPreference(preferenceKeys.studioVideoModel, DEFAULT_VIDEO_MODEL) || DEFAULT_VIDEO_MODEL,
+  model: normalizeVideoModel(getStringPreference(preferenceKeys.studioVideoModel, DEFAULT_VIDEO_MODEL)),
   duration: DEFAULT_VIDEO_DURATION,
   aspectRatio: DEFAULT_VIDEO_RATIO,
   resolution: DEFAULT_VIDEO_RESOLUTION,
@@ -340,7 +340,7 @@ const conversationBadges = computed<Record<string, StudioConversationBadge>>(() 
 })
 const chatModelOptions = computed(() => uniqueStrings(['auto', ...chatModels.value]))
 const imageModelOptions = computed(() => uniqueStrings([imageForm.model, DEFAULT_IMAGE_MODEL, ...imageModels.value]))
-const videoModelOptions = computed(() => uniqueStrings([videoForm.model, DEFAULT_VIDEO_MODEL, ...videoModels.value]))
+const videoModelOptions = computed(() => uniqueStrings([normalizeVideoModel(videoForm.model), DEFAULT_VIDEO_MODEL, ...videoModels.value.map(normalizeVideoModel)]))
 
 watch(composeMode, (mode) => setStringPreference(preferenceKeys.studioActiveMode, mode))
 watch(chatModel, (model) => setStringPreference(preferenceKeys.studioChatModel, model || 'auto'))
@@ -356,12 +356,25 @@ watch(() => imageForm.model, (model) => {
   setStringPreference(preferenceKeys.studioImageModel, model || DEFAULT_IMAGE_MODEL)
   if (!isImageSizeSupportedByModel(imageForm.size, model)) imageForm.size = DEFAULT_IMAGE_SIZE
 })
-watch(() => videoForm.model, (model) => setStringPreference(preferenceKeys.studioVideoModel, model || DEFAULT_VIDEO_MODEL))
+watch(() => videoForm.model, (model) => {
+  const normalized = normalizeVideoModel(model)
+  if (model !== normalized) {
+    videoForm.model = normalized
+    return
+  }
+  setStringPreference(preferenceKeys.studioVideoModel, normalized)
+})
 
 function normalizeMode(value: string): StudioComposeMode {
   if (value === 'video') return value
   if (value === 'image') return value
   return 'image'
+}
+
+function normalizeVideoModel(value: unknown) {
+  const model = String(value || '').trim()
+  if (model === 'seedance-2.0') return DEFAULT_VIDEO_MODEL
+  return model || DEFAULT_VIDEO_MODEL
 }
 
 function uniqueStrings(values: string[]) {
@@ -1189,12 +1202,14 @@ async function sendImageMessage(conversation: StudioConversation, prompt: string
 }
 
 async function sendVideoMessage(conversation: StudioConversation, prompt: string, files: File[] = []) {
+  const normalizedVideoModel = normalizeVideoModel(videoForm.model)
+  if (videoForm.model !== normalizedVideoModel) videoForm.model = normalizedVideoModel
   const assistantMessage = addMessage(conversation, {
     role: 'assistant',
     mode: 'video',
     content: '视频生成中...',
     status: 'sending',
-    model: videoForm.model,
+    model: normalizedVideoModel,
     videoRatio: videoForm.aspectRatio,
     videoDuration: videoForm.duration,
     videoResolution: videoForm.resolution,
@@ -1203,7 +1218,7 @@ async function sendVideoMessage(conversation: StudioConversation, prompt: string
   try {
     const result = await videoGenerationsApi.create({
       prompt,
-      model: videoForm.model || DEFAULT_VIDEO_MODEL,
+      model: normalizedVideoModel,
       duration: videoForm.duration,
       aspectRatio: videoForm.aspectRatio,
       resolution: videoForm.resolution,

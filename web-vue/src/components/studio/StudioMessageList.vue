@@ -143,7 +143,7 @@
                     <template v-else>
                       <div v-if="message.status === 'error' || message.task?.status === 'error'" class="studio-image-status is-error">
                         <Icon icon="lucide:circle-alert" class="h-4 w-4" />
-                        <span>{{ message.primaryMessage || (message.isVideoMessage ? '上游没有返回可用视频。' : '上游没有返回可用图片。') }}</span>
+                        <span>{{ message.displayErrorMessage || message.primaryMessage || (message.isVideoMessage ? '上游没有返回可用视频。' : '上游没有返回可用图片。') }}</span>
                       </div>
 
                       <div v-else class="studio-result-block">
@@ -318,6 +318,7 @@ type StudioMessageView = StudioMessage & {
   pendingSlots: number[]
   imagePendingStageText: string
   primaryMessage: string
+  displayErrorMessage: string
   imagePreviewStyle?: CSSProperties
   isCollapsible: boolean
   isCollapsed: boolean
@@ -396,6 +397,7 @@ function buildMessageView(message: StudioMessage): StudioMessageView {
     pendingSlots: Array.from({ length: imageSlotCount }, (_, index) => index),
     imagePendingStageText: imageTaskProgressLabel(task),
     primaryMessage: taskPrimaryMessage(task),
+    displayErrorMessage: messageErrorText(message, task),
     imagePreviewStyle: isImageMessage ? buildImagePreviewStyle(message, task, imageSlotCount) : undefined,
     isCollapsible,
     isCollapsed,
@@ -461,6 +463,10 @@ function messageViewSignature(
 function sameMessageViewSignature(left: MessageViewSignature, right: MessageViewSignature) {
   if (left.length !== right.length) return false
   return left.every((value, index) => value === right[index])
+}
+
+function messageErrorText(message: StudioMessage, task: ImageTask | undefined) {
+  return cleanText(message.error) || cleanText(message.content) || taskPrimaryMessage(task) || cleanText(task?.error)
 }
 
 function arraySignature(values: string[] | undefined) {

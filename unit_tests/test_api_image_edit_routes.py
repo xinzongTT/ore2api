@@ -17,6 +17,7 @@ class ApiImageEditRoutesTest(unittest.TestCase):
         with (
             patch("api.ai.require_identity", return_value={"id": "admin", "role": "admin"}),
             patch("api.ai.check_request", return_value=None),
+            patch("services.log_service.log_service.add"),
             patch(
                 "services.oreate_backend_api.image_generation",
                 return_value={"created": 1, "data": [{"url": "https://cdn.oreateai.com/aiimage/edit.png"}]},

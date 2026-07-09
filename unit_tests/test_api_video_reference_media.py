@@ -17,6 +17,7 @@ class ApiVideoReferenceMediaTest(unittest.TestCase):
         with (
             patch("api.ai.require_identity", return_value={"id": "admin", "role": "admin"}),
             patch("api.ai.check_request", return_value=None),
+            patch("services.log_service.log_service.add"),
             patch(
                 "api.ai._oreate_api.video_generation",
                 return_value={"created": 1, "data": [{"url": "https://cdn.oreateai.com/aivideo/demo.mp4"}]},
@@ -39,6 +40,7 @@ class ApiVideoReferenceMediaTest(unittest.TestCase):
         with (
             patch("api.ai.require_identity", return_value={"id": "admin", "role": "admin"}),
             patch("api.ai.check_request", return_value=None),
+            patch("services.log_service.log_service.add"),
             patch(
                 "api.ai._oreate_api.video_generation",
                 return_value={"created": 1, "data": [{"url": "https://cdn.oreateai.com/aivideo/demo.mp4"}]},

@@ -17,6 +17,7 @@ from curl_cffi import requests
 from fastapi import HTTPException
 
 from services.account_service import ImageAccountSelectionError, account_service
+from services.proxy_service import proxy_settings
 from utils.log import logger
 
 OREATE_BASE = "https://www.oreateai.com"
@@ -550,17 +551,29 @@ def _decode_reference_data_url(value: str) -> tuple[bytes, str, str]:
     return data, f"reference.{_extension_from_mime(content_type)}", content_type
 
 
+def _should_skip_ssl_verify_for_reference_url(url: str) -> bool:
+    if proxy_settings.should_skip_ssl_verify():
+        return True
+    parsed = urlparse(str(url or "").strip())
+    host = str(parsed.hostname or "").strip().lower()
+    return host == "cdn.oreateai.com" or host.endswith(".oreateai.com")
+
+
 def _download_reference_image(url: str) -> tuple[bytes, str, str]:
     source = str(url or "").strip()
     parsed = urlparse(source)
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise _generation_error(400, "image URL must be http or https", "invalid_request_error", "invalid_image_url")
     try:
+        request_kwargs: dict[str, Any] = {}
+        if _should_skip_ssl_verify_for_reference_url(source):
+            request_kwargs["verify"] = False
         response = requests.get(
             source,
             headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "oreate2api image fetcher"},
             timeout=60,
             allow_redirects=True,
+            **request_kwargs,
         )
     except Exception as exc:
         raise _generation_error(400, f"image URL fetch failed: {exc}", "invalid_request_error", "invalid_image_url") from exc
@@ -910,6 +923,8 @@ def _run_generation_stream(
             continue
         text = line.decode("utf-8") if isinstance(line, (bytes, bytearray)) else str(line)
         chunks.append(text)
+        if _extract_generation_urls(text, chat_type):
+            break
         if '"event":"end"' in text:
             break
     raw = "\n".join(chunks)

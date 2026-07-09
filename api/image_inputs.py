@@ -262,6 +262,14 @@ def _response_mime_type(response: requests.Response, parsed_path: str) -> str:
     raise HTTPException(status_code=400, detail={"error": "image_url must point to an image"})
 
 
+def _should_skip_ssl_verify_for_url(url: str) -> bool:
+    if proxy_settings.should_skip_ssl_verify():
+        return True
+    parsed = urlparse(_clean(url))
+    host = str(parsed.hostname or "").strip().lower()
+    return host == "cdn.oreateai.com" or host.endswith(".oreateai.com")
+
+
 def _filename_from_url(parsed_path: str, mime_type: str) -> str:
     """生成 URL 图片文件名：从链接路径提取名称并做安全化。"""
     raw_name = PurePosixPath(unquote(parsed_path)).name
@@ -277,12 +285,15 @@ def _download_image_url(url: str) -> ImageInput:
     if parsed.scheme not in {"http", "https"} or not parsed.netloc:
         raise HTTPException(status_code=400, detail={"error": "image_url must be an http or https URL"})
     try:
+        request_kwargs = proxy_settings.build_session_kwargs()
+        if _should_skip_ssl_verify_for_url(source):
+            request_kwargs["verify"] = False
         response = requests.get(
             source,
             headers={"Accept": "image/*,*/*;q=0.8", "User-Agent": "oreate2api image fetcher"},
             timeout=60,
             allow_redirects=True,
-            **proxy_settings.build_session_kwargs(),
+            **request_kwargs,
         )
     except Exception as exc:
         raise HTTPException(status_code=400, detail={"error": f"image_url fetch failed: {exc}"}) from exc
